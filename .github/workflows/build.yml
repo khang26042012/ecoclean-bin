@@ -35,15 +35,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller pyserial "bitstring<4.0" reedsolo ecdsa
           pip install --no-deps -e .
-          
-          # Build with --collect-all serial and --collect-all esptool
-          pyinstaller --onefile --clean \
-            --collect-all serial \
-            --collect-all esptool \
-            --collect-all reedsolo \
-            --collect-all bitstring \
-            --collect-all ecdsa \
-            esptool.py
+          pyinstaller --onefile --clean --collect-all serial --collect-all esptool --collect-all reedsolo --collect-all bitstring --collect-all ecdsa esptool.py
 
       - name: Test generated 32-bit esptool.exe
         working-directory: esptool_src
