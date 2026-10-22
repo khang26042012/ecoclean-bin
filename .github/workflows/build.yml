@@ -1,0 +1,62 @@
+name: Build ESP32-C3 OTA Firmware
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install ESP32 Platform
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@2.0.17
+
+      - name: Compile Minimal OTA Sketch
+        run: |
+          mkdir -p build
+          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc --output-dir ./build ./ota_minimal.ino
+          ls -la ./build
+
+      - name: Prepare Web Flasher Files
+        run: |
+          cp build/ota_minimal.ino.bin firmware.bin
+          cp build/ota_minimal.ino.bootloader.bin bootloader.bin
+          cp build/ota_minimal.ino.partitions.bin partitions.bin
+          # Generate manifest.json for esp-web-tools
+          cat << 'EOF' > manifest.json
+          {
+            "name": "ESP32-C3 WiFi OTA Flasher",
+            "version": "1.0",
+            "builds": [
+              {
+                "chipFamily": "ESP32-C3",
+                "parts": [
+                  { "path": "bootloader.bin", "offset": 0 },
+                  { "path": "partitions.bin", "offset": 32768 },
+                  { "path": "firmware.bin", "offset": 65536 }
+                ]
+              }
+            ]
+          }
+          EOF
+
+      - name: Commit and Push Binaries
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add firmware.bin bootloader.bin partitions.bin manifest.json
+          git diff --staged --quiet || (git commit -m "Auto-build compiled binaries for 1-click web flash" && git push)
