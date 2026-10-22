@@ -33,18 +33,23 @@ jobs:
         working-directory: esptool_src
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install pyserial "reedsolo>=1.5.3,<=1.6.0" "bitstring>=3.1.6" "ecdsa>=0.16.0" "cryptography>=2.1.4"
-          pip install -e .
+          pip install pyinstaller pyserial "bitstring<4.0" reedsolo ecdsa
+          pip install --no-deps -e .
           
-          # Build with --collect-all for every dependency so zero modules are missing
-          pyinstaller --onefile --clean             --collect-all serial             --collect-all esptool             --collect-all reedsolo             --collect-all bitstring             --collect-all ecdsa             --collect-all cryptography             esptool.py
+          # Build with --collect-all serial and --collect-all esptool
+          pyinstaller --onefile --clean \
+            --collect-all serial \
+            --collect-all esptool \
+            --collect-all reedsolo \
+            --collect-all bitstring \
+            --collect-all ecdsa \
+            esptool.py
 
       - name: Test generated 32-bit esptool.exe
         working-directory: esptool_src
         run: |
           .\dist\esptool.exe version
-          .\dist\esptool.exe --help
+          .\dist\esptool.exe --chip esp32c3 --help
 
       - name: Checkout this repo
         uses: actions/checkout@v4
