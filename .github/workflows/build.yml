@@ -1,4 +1,4 @@
-name: Build ESP32-C3 OTA Firmware
+name: Build 32-bit esptool for Win32
 
 on:
   push:
@@ -9,66 +9,45 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-win32:
+    runs-on: windows-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout esptool v4.5.1
         uses: actions/checkout@v4
+        with:
+          repository: espressif/esptool
+          ref: v4.5.1
+          path: esptool_src
 
-      - name: Setup Python & esptool
+      - name: Setup Python 3.10 32-bit (x86)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.10'
+          architecture: 'x86'
 
-      - name: Install esptool
-        run: pip install esptool
-
-      - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
-
-      - name: Install ESP32 Platform
+      - name: Verify Python Architecture
         run: |
-          arduino-cli config init
-          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index
-          arduino-cli core install esp32:esp32@2.0.17
+          python -c "import struct; bits = struct.calcsize('P') * 8; print(f'Target Python Architecture: {bits}-bit'); assert bits == 32"
 
-      - name: Compile Minimal OTA Sketch in DIO Mode
+      - name: Build native 32-bit esptool.exe
+        working-directory: esptool_src
         run: |
-          mkdir -p build
-          # Use FlashMode=dio, FlashFreq=40m, CDCOnBoot=cdc for 100% compatibility with ESP32-C3 Super Mini
-          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio,FlashFreq=40 --output-dir ./build ./ota_minimal
-          ls -la ./build
+          pip install --upgrade pip
+          pip install pyinstaller
+          pip install .
+          pyinstaller --onefile --clean esptool.py
+          ls dist/
 
-      - name: Find boot_app0 and Merge Binaries
-        run: |
-          BOOT_APP0=$(find ~/.arduino15/packages/esp32/hardware/esp32/ -name "boot_app0.bin" | head -n 1)
-          echo "Found boot_app0 at $BOOT_APP0"
-          
-          # Merge all parts into one single bootable binary starting at offset 0x0
-          esptool.py --chip esp32c3 merge_bin -o firmware.bin --flash_mode dio --flash_freq 40m --flash_size 4MB 0x0 build/ota_minimal.ino.bootloader.bin 0x8000 build/ota_minimal.ino.partitions.bin 0xe000 $BOOT_APP0 0x10000 build/ota_minimal.ino.bin
-          
-          ls -lh firmware.bin
-          
-          # Single-part manifest at offset 0
-          cat << 'EOF' > manifest.json
-          {
-            "name": "ESP32-C3 WiFi OTA Flasher",
-            "version": "2.0",
-            "builds": [
-              {
-                "chipFamily": "ESP32-C3",
-                "parts": [
-                  { "path": "firmware.bin", "offset": 0 }
-                ]
-              }
-            ]
-          }
-          EOF
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          path: ecoclean_repo
 
-      - name: Commit and Push Merged Binary
+      - name: Copy 32-bit esptool to repo
         run: |
+          copy esptool_src\dist\esptool.exe ecoclean_repo\esptool.exe
+          cd ecoclean_repo
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add firmware.bin manifest.json
-          git diff --staged --quiet || (git commit -m "Merge all binaries into single offset 0x0 DIO firmware" && git push)
+          git add esptool.exe
+          git diff --staged --quiet || (git commit -m "Add native 32-bit esptool.exe for Windows 32-bit" && git push)
