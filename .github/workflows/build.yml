@@ -15,6 +15,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Python & esptool
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install esptool
+        run: pip install esptool
+
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
@@ -25,37 +33,42 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@2.0.17
 
-      - name: Compile Minimal OTA Sketch
+      - name: Compile Minimal OTA Sketch in DIO Mode
         run: |
           mkdir -p build
-          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc --output-dir ./build ./ota_minimal
+          # Use FlashMode=dio, FlashFreq=40m, CDCOnBoot=cdc for 100% compatibility with ESP32-C3 Super Mini
+          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio,FlashFreq=40 --output-dir ./build ./ota_minimal
           ls -la ./build
 
-      - name: Prepare Web Flasher Files
+      - name: Find boot_app0 and Merge Binaries
         run: |
-          cp build/ota_minimal.ino.bin firmware.bin
-          cp build/ota_minimal.ino.bootloader.bin bootloader.bin
-          cp build/ota_minimal.ino.partitions.bin partitions.bin
+          BOOT_APP0=$(find ~/.arduino15/packages/esp32/hardware/esp32/ -name "boot_app0.bin" | head -n 1)
+          echo "Found boot_app0 at $BOOT_APP0"
+          
+          # Merge all parts into one single bootable binary starting at offset 0x0
+          esptool.py --chip esp32c3 merge_bin -o firmware.bin --flash_mode dio --flash_freq 40m --flash_size 4MB 0x0 build/ota_minimal.ino.bootloader.bin 0x8000 build/ota_minimal.ino.partitions.bin 0xe000 $BOOT_APP0 0x10000 build/ota_minimal.ino.bin
+          
+          ls -lh firmware.bin
+          
+          # Single-part manifest at offset 0
           cat << 'EOF' > manifest.json
           {
             "name": "ESP32-C3 WiFi OTA Flasher",
-            "version": "1.0",
+            "version": "2.0",
             "builds": [
               {
                 "chipFamily": "ESP32-C3",
                 "parts": [
-                  { "path": "bootloader.bin", "offset": 0 },
-                  { "path": "partitions.bin", "offset": 32768 },
-                  { "path": "firmware.bin", "offset": 65536 }
+                  { "path": "firmware.bin", "offset": 0 }
                 ]
               }
             ]
           }
           EOF
 
-      - name: Commit and Push Binaries
+      - name: Commit and Push Merged Binary
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add firmware.bin bootloader.bin partitions.bin manifest.json
-          git diff --staged --quiet || (git commit -m "Auto-build compiled binaries for 1-click web flash" && git push)
+          git add firmware.bin manifest.json
+          git diff --staged --quiet || (git commit -m "Merge all binaries into single offset 0x0 DIO firmware" && git push)
