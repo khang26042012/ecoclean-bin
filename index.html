@@ -3,251 +3,64 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EcoClean Bin - ESP32-C3 Web Serial & Flasher</title>
+  <title>Nạp Code ESP32-C3 Qua Web (1 Chạm)</title>
+  <!-- Nabu Casa ESP Web Tools -->
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
-    :root {
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --accent: #38bdf8;
-      --text: #f8fafc;
-      --border: #334155;
-      --success: #22c55e;
-      --danger: #ef4444;
-      --terminal-bg: #020617;
-    }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); padding: 16px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-    .container { width: 100%; max-width: 720px; }
-    header { text-align: center; margin-bottom: 20px; padding: 12px; }
-    h1 { font-size: 1.5rem; color: var(--accent); margin-bottom: 6px; }
-    p.sub { font-size: 0.85rem; color: #94a3b8; }
-    .card { background: var(--card-bg); border: 2px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 16px; }
-    .status-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .status-badge { display: inline-flex; align-items: center; gap: 8px; font-weight: bold; font-size: 0.85rem; padding: 6px 12px; border-radius: 20px; background: #0f172a; border: 1px solid var(--border); }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); display: inline-block; }
-    .dot.connected { background: var(--success); box-shadow: 0 0 10px var(--success); }
-    .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
-    button {
-      padding: 10px 18px; border-radius: 12px; border: 2px solid #000; font-weight: bold; cursor: pointer;
-      display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; transition: all 0.15s ease;
+    body {
+      background: #0f172a; color: #f8fafc; min-height: 100vh;
+      display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px;
     }
-    button:active { transform: translateY(2px); }
-    .btn-primary { background: var(--accent); color: #020617; }
-    .btn-success { background: var(--success); color: #020617; }
-    .btn-danger { background: var(--danger); color: #fff; }
-    .btn-secondary { background: #334155; color: #fff; border-color: #475569; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .terminal {
-      background: var(--terminal-bg); border: 2px solid #1e293b; border-radius: 12px; padding: 12px;
-      height: 260px; overflow-y: auto; font-family: "Courier New", Courier, monospace; font-size: 0.82rem;
-      color: #38bdf8; white-space: pre-wrap; margin-top: 10px;
+    .card {
+      background: #1e293b; border: 2px solid #38bdf8; border-radius: 20px;
+      padding: 30px 24px; max-width: 480px; width: 100%; text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
     }
-    .input-row { display: flex; gap: 8px; margin-top: 10px; }
-    input[type="text"] {
-      flex: 1; background: #0f172a; border: 2px solid var(--border); border-radius: 10px;
-      padding: 10px; color: #fff; font-size: 0.9rem; outline: none;
+    h1 { font-size: 1.5rem; color: #38bdf8; margin-bottom: 8px; }
+    p.desc { font-size: 0.9rem; color: #94a3b8; line-height: 1.5; margin-bottom: 24px; }
+    .flash-box {
+      background: #020617; border: 2px dashed #475569; border-radius: 16px;
+      padding: 24px; margin-bottom: 20px;
     }
-    input[type="text"]:focus { border-color: var(--accent); }
-    .quick-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-    .badge-info { font-size: 0.75rem; color: #94a3b8; line-height: 1.4; margin-top: 6px; }
+    esp-web-install-button {
+      --esp-tools-button-border-radius: 12px;
+      --esp-tools-button-color: #020617;
+      --esp-tools-button-bg: #38bdf8;
+      font-size: 1.1rem; font-weight: bold;
+    }
+    .steps { text-align: left; background: #0f172a; padding: 14px 18px; border-radius: 12px; font-size: 0.85rem; color: #cbd5e1; }
+    .steps ol { padding-left: 20px; line-height: 1.6; }
+    .footer { margin-top: 15px; font-size: 0.8rem; color: #64748b; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>🗑️ EcoClean Bin - Web Serial Controller</h1>
-      <p class="sub">Bộ điều khiển & Màn hình Serial siêu nhẹ cho ESP32-C3 qua Google Chrome (COM5)</p>
-    </header>
+  <div class="card">
+    <h1>⚡ NẠP CODE ESP32-C3 (1 CHẠM)</h1>
+    <p class="desc">Kích hoạt Wi-Fi (pass: <code>khongbiet123</code>) & Mở nạp code từ xa không dây (OTA). Không cần cài đặt bất kỳ phần mềm nào vào máy tính!</p>
 
-    <div class="card">
-      <div class="status-row">
-        <div>
-          <strong>Cổng COM: </strong><span id="portName">Chưa chọn</span>
-        </div>
-        <div class="status-badge">
-          <span class="dot" id="statusDot"></span>
-          <span id="statusText">Ngắt kết nối</span>
-        </div>
-      </div>
-
-      <div class="btn-group">
-        <button id="btnConnect" class="btn-primary" onclick="toggleConnect()">🔌 Kết Nối ESP32 (COM5)</button>
-        <button id="btnClear" class="btn-secondary" onclick="clearTerminal()">🧹 Xóa Màn Hình</button>
-      </div>
-
-      <p class="badge-info">💡 Hướng dẫn: Cắm ESP32-C3 vào USB, bấm nút <strong>[Kết Nối]</strong>, chọn <strong>USB Serial Device (COM5)</strong> trong cửa sổ Chrome hiện lên.</p>
+    <div class="flash-box">
+      <!-- Nút nạp 1 chạm chính thức -->
+      <esp-web-install-button manifest="./manifest.json">
+        <button slot="activate" style="padding: 14px 28px; background: #38bdf8; color: #020617; font-size: 1.1rem; font-weight: bold; border: 2px solid #000; border-radius: 14px; cursor: pointer;">
+          🚀 BẤM ĐỂ NẠP VÀO COM5
+        </button>
+        <span slot="unsupported" style="color: #ef4444; font-size: 0.85rem;">
+          ⚠️ Trình duyệt không hỗ trợ Web Serial. Vui lòng mở trang này trên Google Chrome hoặc Cốc Cốc trên laptop!
+        </span>
+      </esp-web-install-button>
     </div>
 
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <strong>📡 Màn Hình Serial Monitor (115200 Baud):</strong>
-        <span id="autoScrollLabel" style="font-size: 0.75rem; color: #94a3b8;">Tự cuộn: BẬT</span>
-      </div>
-      <div class="terminal" id="terminal">Đang chờ bạn bấm Kết Nối...\n</div>
-
-      <div class="input-row">
-        <input type="text" id="cmdInput" placeholder="Gõ lệnh gửi cho ESP32 (ví dụ: OPEN, CLOSE, SCAN, IP)..." onkeydown="handleKey(event)" disabled>
-        <button class="btn-secondary" id="btnSend" onclick="sendCommand()" disabled>Gửi ⏎</button>
-      </div>
-
-      <div class="quick-actions">
-        <span style="font-size: 0.8rem; color: #94a3b8; align-self: center;">Lệnh nhanh:</span>
-        <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="sendText('OPEN')">🔓 Mở Nắp</button>
-        <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="sendText('CLOSE')">🔒 Đóng Nắp</button>
-        <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="sendText('SCAN')">🔍 Quét Wi-Fi</button>
-        <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;" onclick="sendText('IP')">🌐 Xem IP</button>
-      </div>
+    <div class="steps">
+      <strong>👉 Hướng dẫn 3 bước:</strong>
+      <ol>
+        <li>Cắm ESP32-C3 vào cổng USB laptop.</li>
+        <li>Bấm nút <strong>[🚀 BẤM ĐỂ NẠP VÀO COM5]</strong> ở trên.</li>
+        <li>Chọn đúng dòng <code>USB Serial Device (COM5)</code> trong bảng hiện lên và chờ 15 giây là xong!</li>
+      </ol>
     </div>
 
-    <div class="card" style="border-style: dashed;">
-      <h3 style="font-size: 1rem; color: #38bdf8; margin-bottom: 8px;">🔥 Tùy Chọn Nạp Firmware Nhanh Không Cần Arduino IDE:</h3>
-      <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;">Nếu laptop không muốn chạy Arduino IDE nặng máy, anh có thể dùng trình nạp Web Flasher của Espressif:</p>
-      <a href="https://espressif.github.io/esptool-js/" target="_blank" style="text-decoration: none;">
-        <button class="btn-success">🚀 Mở Espressif Web Flasher (Bơm file .bin)</button>
-      </a>
-    </div>
+    <p class="footer">Dự án KhangSMP • ESP32-C3 Super Mini • OTA Wi-Fi Ready</p>
   </div>
-
-  <script>
-    let port;
-    let reader;
-    let inputDone;
-    let outputDone;
-    let inputStream;
-    let outputStream;
-    let isConnected = false;
-
-    const term = document.getElementById('terminal');
-    const dot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const portName = document.getElementById('portName');
-    const btnConnect = document.getElementById('btnConnect');
-    const cmdInput = document.getElementById('cmdInput');
-    const btnSend = document.getElementById('btnSend');
-
-    function log(msg) {
-      term.textContent += msg;
-      term.scrollTop = term.scrollHeight;
-    }
-
-    function clearTerminal() {
-      term.textContent = '';
-    }
-
-    async function toggleConnect() {
-      if (!('serial' in navigator)) {
-        alert('Trình duyệt của bạn không hỗ trợ Web Serial API! Vui lòng dùng Google Chrome, Microsoft Edge hoặc Cốc Cốc trên laptop.');
-        return;
-      }
-
-      if (isConnected) {
-        await disconnect();
-      } else {
-        await connect();
-      }
-    }
-
-    async function connect() {
-      try {
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: 115200 });
-
-        isConnected = true;
-        dot.classList.add('connected');
-        statusText.textContent = 'Đã kết nối';
-        portName.textContent = 'COM5 (115200)';
-        btnConnect.textContent = '❌ Ngắt Kết Nối';
-        btnConnect.className = 'btn-danger';
-        cmdInput.disabled = false;
-        btnSend.disabled = false;
-
-        log('\n[HỆ THỐNG] Đã kết nối thành công với cổng COM! Đang lắng nghe dữ liệu từ ESP32-C3...\n');
-
-        readLoop();
-      } catch (err) {
-        log('\n[LỖI] Không thể mở cổng: ' + err.message + '\n');
-      }
-    }
-
-    async function readLoop() {
-      while (port && port.readable && isConnected) {
-        const textDecoder = new TextDecoderStream();
-        inputDone = port.readable.pipeTo(textDecoder.writable);
-        inputStream = textDecoder.readable;
-        reader = inputStream.getReader();
-
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            if (value) {
-              log(value);
-            }
-          }
-        } catch (error) {
-          log('\n[LỖI ĐỌC] ' + error.message + '\n');
-        } finally {
-          reader.releaseLock();
-        }
-      }
-    }
-
-    async function disconnect() {
-      isConnected = false;
-      if (reader) {
-        await reader.cancel();
-        await inputDone.catch(() => {});
-        reader = null;
-        inputDone = null;
-      }
-      if (outputStream) {
-        await outputStream.getWriter().close();
-        await outputDone;
-        outputStream = null;
-        outputDone = null;
-      }
-      if (port) {
-        await port.close();
-        port = null;
-      }
-
-      dot.classList.remove('connected');
-      statusText.textContent = 'Ngắt kết nối';
-      portName.textContent = 'Chưa chọn';
-      btnConnect.textContent = '🔌 Kết Nối ESP32 (COM5)';
-      btnConnect.className = 'btn-primary';
-      cmdInput.disabled = true;
-      btnSend.disabled = true;
-      log('\n[HỆ THỐNG] Đã ngắt kết nối với thiết bị.\n');
-    }
-
-    async function sendText(text) {
-      if (!port || !port.writable) {
-        alert('Chưa kết nối cổng COM!');
-        return;
-      }
-      const textEncoder = new TextEncoderStream();
-      outputDone = textEncoder.readable.pipeTo(port.writable);
-      outputStream = textEncoder.writable;
-      const writer = outputStream.getWriter();
-      await writer.write(text + '\r\n');
-      writer.releaseLock();
-      log('\n> [GỬI]: ' + text + '\n');
-    }
-
-    function sendCommand() {
-      const text = cmdInput.value.trim();
-      if (text) {
-        sendText(text);
-        cmdInput.value = '';
-      }
-    }
-
-    function handleKey(e) {
-      if (e.key === 'Enter') {
-        sendCommand();
-      }
-    }
-  </script>
 </body>
 </html>
