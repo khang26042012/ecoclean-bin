@@ -28,7 +28,7 @@ jobs:
       - name: Compile Minimal OTA Sketch
         run: |
           mkdir -p build
-          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc --output-dir ./build ./ota_minimal.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc --output-dir ./build ./ota_minimal
           ls -la ./build
 
       - name: Prepare Web Flasher Files
@@ -36,7 +36,6 @@ jobs:
           cp build/ota_minimal.ino.bin firmware.bin
           cp build/ota_minimal.ino.bootloader.bin bootloader.bin
           cp build/ota_minimal.ino.partitions.bin partitions.bin
-          # Generate manifest.json for esp-web-tools
           cat << 'EOF' > manifest.json
           {
             "name": "ESP32-C3 WiFi OTA Flasher",
