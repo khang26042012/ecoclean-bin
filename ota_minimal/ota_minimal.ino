@@ -1,6 +1,7 @@
 /*
- * ECO-CLEAN BIN - COOLING MODE
- * Underclock 80MHz, STA only (Trong Khang), Light Sleep, Temp sensor
+ * ECO-CLEAN BIN - SAFE SERVO & COOLING
+ * Fix: Pulse 1000-2000us, Auto-Detach (ledcWrite 0) after movement
+ * No auto-rotation on boot (starts with 0mA idle)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -18,29 +19,41 @@ void addLog(String s) {
   if (logs.length() > 2000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-void setServo(int angle) {
-  long duty = (map(angle, 0, 180, 500, 2400) * 16384) / 20000;
+// Ham quay an toan: Chuyen dong xong -> NGAT XUNG NGAY de mo to khong bi ket/nong
+void rotateServo(int angle) {
+  // Gioi han an toan cho SG90: 1000us (0 do) den 2000us (180 do)
+  long pulse_us = map(angle, 0, 180, 1000, 2000);
+  long duty = (pulse_us * 16384) / 20000;
+  
   ledcWrite(0, duty);
-  addLog("🤖 SERVO DA QUAY DEN: " + String(angle) + " DO");
+  addLog("🤖 SERVO DANG QUAY DEN: " + String(angle) + " DO");
+  
+  // Cho 450ms de servo hoan tat quay
+  delay(450);
+  
+  // 🔥 TRIET DE: DẬP TẮT XUNG PWM NGAY LẬP TỨC!
+  // Giup mo to servo ngat dien 100% (0mA), banh rang tha long, khong bao gio bi ket hay nong!
+  ledcWrite(0, 0);
+  addLog("💤 DA NGAT DIEN MO TO (0mA) - THA LONG AN TOAN!");
 }
 
 void setup() {
   Serial.begin(115200);
 
-  // Underclock to 80MHz
+  // Ha xung 80MHz de tiet kiem dien
   setCpuFrequencyMhz(80);
-
   pinMode(LED_PIN, OUTPUT);
 
+  // Khoi tao PWM va DAT VE 0 NGAY - KHONG PHAT XUNG KHI VUA BAT NGUON
   ledcSetup(0, 50, 14);
   ledcAttachPin(SERVO_PIN, 0);
-  setServo(0);
+  ledcWrite(0, 0); // Xung = 0: Servo nam im hoan toan khi vua cap nguon!
 
-  // Station only (Trong Khang) + Modem Sleep
+  // Ket noi WiFi nha
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
   WiFi.begin("Trong Khang", "khongbiet123");
-  addLog("❄️ DA HA XUNG 80MHz & TAT AP! Dang ket noi Wi-Fi Trong Khang...");
+  addLog("❄️ KHOI DONG XONG! Chế độ an toàn: KHÔNG tự quay servo lúc bật nguồn.");
 
   // Endpoints
   server.on("/log", HTTP_GET, []() {
@@ -57,8 +70,8 @@ void setup() {
   server.on("/servo", HTTP_GET, []() {
     if (server.hasArg("angle")) {
       int a = server.arg("angle").toInt();
-      setServo(a);
-      server.send(200, "text/plain", "Da quay servo den: " + String(a) + " do");
+      rotateServo(a);
+      server.send(200, "text/plain", "Da quay servo den: " + String(a) + " do va tha long motor");
     } else {
       server.send(400, "text/plain", "Thieu goc quay");
     }
@@ -88,7 +101,7 @@ void loop() {
   static bool connected = false;
   if (!connected && WiFi.status() == WL_CONNECTED) {
     connected = true;
-    addLog("🎉 DA KET NOI WI-FI THANH CONG! IP: " + WiFi.localIP().toString());
+    addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
   }
 
   static unsigned long t = 0;
