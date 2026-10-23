@@ -1,9 +1,9 @@
 /*
- * ESP32-C3 MULTI-SSID BEACON - MARAUDER ENGINE (50-60°C OPTIMIZED)
- * 1. Exact 802.11 Beacon frame structure from ESP32Marauder (variable length, no padding)
- * 2. Unicast/Local Admin MAC address bitmask ((rand & 0xFE) | 0x02)
- * 3. Dynamic Channel Sync with "Trong Khang" (channel 4)
- * 4. 80ms Burst Interval (12 bursts/sec) -> ZERO DROPOUT on Android, Temp: 50-55°C
+ * ESP32-C3 MULTI-SSID BEACON - PERFECT MARAUDER (50-60°C TUNED)
+ * 1. Marauder Dynamic Frame: Chuan 100% Android nhan dien ca 6 mang!
+ * 2. 1 goi/mang moi 135ms (Duty cycle 1%) -> Nhiet do on dinh 50 - 55°C
+ * 3. TxPower 5dBm (chi 3mW) -> Khong bao gio qua nhiet
+ * 4. Khong sleep qua lau (chi 135ms) -> Khong bao gio bi mat song tren dien thoai
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -29,24 +29,22 @@ const char* ssids[] = {
 };
 const int NUM_SSIDS = sizeof(ssids) / sizeof(ssids[0]);
 
-// Marauder base packet header (38 bytes)
 const uint8_t baseHeader[38] = {
-  0x80, 0x00, 0x00, 0x00, // Frame Control (Beacon), Duration
-  0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Destination (Broadcast)
-  0x02, 0x11, 0x22, 0x33, 0x44, 0x00, // Source Address
-  0x02, 0x11, 0x22, 0x33, 0x44, 0x00, // BSSID
-  0xc0, 0x6c, // Seq-ctl
-  0x83, 0x51, 0xf7, 0x8f, 0x0f, 0x00, 0x00, 0x00, // Timestamp
-  0x64, 0x00, // Beacon interval (100 TU)
-  0x31, 0x00, // Capability info (WPA2)
-  0x00, 0x00  // Tag 0 (SSID), length will be overwritten
+  0x80, 0x00, 0x00, 0x00,
+  0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+  0x02, 0x11, 0x22, 0x33, 0x44, 0x00,
+  0x02, 0x11, 0x22, 0x33, 0x44, 0x00,
+  0xc0, 0x6c,
+  0x83, 0x51, 0xf7, 0x8f, 0x0f, 0x00, 0x00, 0x00,
+  0x64, 0x00,
+  0x31, 0x00,
+  0x00, 0x00
 };
 
-// Marauder post-SSID data (39 bytes): Supported Rates + DSSS Channel + WPA2 RSN
 const uint8_t postBase[39] = {
-  0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, // Supported rates
-  0x03, 0x01, 0x04, // DSSS parameter (byte 12 is channel)
-  0x30, 0x18, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x02, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00 // WPA2 RSN
+  0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c,
+  0x03, 0x01, 0x04,
+  0x30, 0x18, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x02, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00
 };
 
 uint8_t curChannel = 1;
@@ -58,19 +56,15 @@ void setup() {
   // Ha xung 80MHz lam mat
   setCpuFrequencyMhz(80);
 
-  // Kich hoat AP_STA de mo WIFI_IF_AP
+  // Kich hoat AP_STA
   WiFi.mode(WIFI_AP_STA);
-
-  // An hoan toan SoftAP goc
   WiFi.softAP("invisible", "12345678", 1, 1, 1);
-
-  // Ket noi WiFi nha
   WiFi.begin("Trong Khang", "khongbiet123");
 
-  // Ha cong suat phat ve 8.5dBm
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  // Ha cong suat phat song ve 5dBm de giu nhiet do 50-60C
+  WiFi.setTxPower(WIFI_POWER_5dBm);
 
-  addLog("🚀 Marauder Engine khoi dong: Phat 6 Wi-Fi chu kỳ 80ms!");
+  addLog("❄️ PERFECT MARAUDER: TxPower 5dBm, Burst 135ms, Target Temp: 50-55C");
 
   server.on("/log", HTTP_GET, []() {
     float temp = temperatureRead();
@@ -109,12 +103,12 @@ void loop() {
     if (!channelSynced) {
       channelSynced = true;
       curChannel = WiFi.channel();
-      addLog("🎉 Da bat kenh: " + String(curChannel) + " | IP: " + WiFi.localIP().toString());
+      addLog("🎉 Kenh: " + String(curChannel) + " | IP: " + WiFi.localIP().toString());
     }
 
     unsigned long now = millis();
-    // Chu ky 75ms: Phat 6 goi het 3ms, nghi 72ms (Duty cycle 4% -> Nhiet do 50-55C)
-    if (now - lastBurstTime >= 75) {
+    // Chu ky 135ms (chi 0.13s): Khong he sleep qua lau, ban 6 goi het 1.5ms, nghi 133.5ms
+    if (now - lastBurstTime >= 135) {
       lastBurstTime = now;
 
       uint8_t packet[128];
@@ -126,10 +120,8 @@ void loop() {
 
         int frameLen = 38 + ssidLen + sizeof(postBase);
 
-        // Copy header
         memcpy(packet, baseHeader, 38);
 
-        // Valid unicast locally-administered MAC: (0x02 | (rand & 0xFC))
         packet[10] = packet[16] = 0x02;
         packet[11] = packet[17] = 0x11;
         packet[12] = packet[18] = 0x22;
@@ -137,25 +129,17 @@ void loop() {
         packet[14] = packet[20] = 0x44;
         packet[15] = packet[21] = (uint8_t)(i + 1);
 
-        // SSID tag length
         packet[37] = (uint8_t)ssidLen;
-
-        // Copy SSID
         memcpy(packet + 38, name, ssidLen);
-
-        // Copy postBase
         memcpy(packet + 38 + ssidLen, postBase, sizeof(postBase));
-
-        // Set channel in DSSS tag (byte offset: 38 + ssidLen + 12 = 50 + ssidLen)
         packet[50 + ssidLen] = (curChannel > 0 && curChannel <= 14) ? curChannel : 1;
 
-        // Phat qua WIFI_IF_AP 2 lan de dam bao dien thoai bat song 100%
+        // Phat 1 goi chuan/mang
         esp_wifi_80211_tx(WIFI_IF_AP, packet, frameLen, false);
-        esp_wifi_80211_tx(WIFI_IF_AP, packet, frameLen, false);
-        delayMicroseconds(200);
+        delayMicroseconds(250);
       }
     }
   }
 
-  delay(5);
+  delay(10);
 }
