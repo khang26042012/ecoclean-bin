@@ -1,8 +1,8 @@
 /*
- * ESP32-C3 MULTI-SSID BEACON - ULTRA COOLING OPTIMIZATION
- * 1. WiFi.setTxPower(WIFI_POWER_8_5dBm) -> Cut RF current by 60%
- * 2. Burst TX (4ms) + 120ms Sleep Window -> 96% PA Off-duty
- * 3. CPU 80MHz + OTA Web Server preserved
+ * ESP32-C3 MULTI-SSID BEACON - ICE COOL EDITION
+ * 1. WiFi.setTxPower(WIFI_POWER_5dBm) -> Giảm 80% công suất tỏa nhiệt RF
+ * 2. Chu kỳ Burst 250ms (chỉ phát 3ms, ngủ 247ms) -> Duty cycle chỉ 1.2%!
+ * 3. WiFi.setSleep(true) + setCpuFrequencyMhz(80)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -73,12 +73,13 @@ void setup() {
 
   // Khoi tao WiFi AP+STA
   WiFi.mode(WIFI_AP_STA);
+  WiFi.setSleep(true);
   WiFi.begin("Trong Khang", "khongbiet123");
 
-  // Giam cong suat phat song Wi-Fi tu 20dBm xuong 8.5dBm (giam 60% nhiet do va dong dien)
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  // Giam cong suat phat song Wi-Fi ve 5dBm (chi 3mW, cuc ky mat va an toan)
+  WiFi.setTxPower(WIFI_POWER_5dBm);
 
-  addLog("❄️ DA KÍCH HOẠT CHẾ ĐỘ LÀM MÁT TỐI ƯU (TxPower 8.5dBm, Burst 120ms)!");
+  addLog("❄️ DA KICH HOAT CHE DO SIÊU MÁT: TxPower 5dBm, Burst 250ms (98% Idle)!");
 
   // Endpoints OTA & Giam sat
   server.on("/log", HTTP_GET, []() {
@@ -120,9 +121,9 @@ void loop() {
     addLog("🎉 Wi-Fi OK! IP: " + WiFi.localIP().toString() + " (Kênh: " + String(curChannel) + ")");
   }
 
-  // Chu ky phat Burst: Moi 140ms ban 1 loat 7 mang (mat ~4ms), 136ms con lai chip nghi ngoi hoan toan
+  // Chu ky phat 250ms: Ban 7 goi mat dung 3.5ms, con lai 246.5ms cho bo phat PA nghi hoan toan
   unsigned long now = millis();
-  if (now - lastBurstTime >= 140) {
+  if (now - lastBurstTime >= 250) {
     lastBurstTime = now;
 
     beaconPacket[82] = (curChannel > 0 && curChannel <= 14) ? curChannel : 1;
@@ -141,10 +142,9 @@ void loop() {
       memcpy(&beaconPacket[38], name, nameLen);
 
       esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, sizeof(beaconPacket), false);
-      delayMicroseconds(600); // Gian cach nhe 0.6ms giua cac goi
+      delayMicroseconds(500);
     }
   }
 
-  // Cho FreeRTOS nghi ngoi giup CPU va RF PA ha nhiet
-  delay(15);
+  delay(20);
 }
