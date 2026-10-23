@@ -1,8 +1,9 @@
 /*
- * ESP32-C3 MULTI-SSID BEACON - ICE COOL EDITION
- * 1. WiFi.setTxPower(WIFI_POWER_5dBm) -> Giảm 80% công suất tỏa nhiệt RF
- * 2. Chu kỳ Burst 250ms (chỉ phát 3ms, ngủ 247ms) -> Duty cycle chỉ 1.2%!
- * 3. WiFi.setSleep(true) + setCpuFrequencyMhz(80)
+ * ESP32-C3 MULTI-SSID BEACON - TROLL EDITION (ICE COOL)
+ * 1. Pure STA Mode (No SoftAP, NO "ESP32-SERVO" or "ESP32" visible!)
+ * 2. 6 Funny Dialog Wi-Fi networks (01 - 06)
+ * 3. TxPower 5dBm, Burst 250ms (Ice cool 52C)
+ * 4. Preserves STA "Trong Khang" & Web OTA (/update, /temp, /log)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -18,14 +19,14 @@ void addLog(String s) {
   if (logs.length() > 2000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
+// 6 Mang Wi-Fi troll sap xep thu tu chuan (khong dau de tuong thich 100% dien thoai & duoi 32 byte)
 const char* ssids[] = {
-  "01. while(em_con_tho)",
-  "02. {",
-  "03.    Em_Yeu_Chi();",
-  "04.    Nhieu_Lam();",
-  "05. }",
-  "06. return 100_Diem;",
-  "07. // Mai ben chi <3"
+  "01. Tao co wifi",
+  "02. Tao cung co",
+  "03. Ai hoi chung may vay",
+  "04. Chac tao khong co",
+  "05. Mu het a",
+  "06. Co caizai, tao manh nhat"
 };
 const int NUM_SSIDS = sizeof(ssids) / sizeof(ssids[0]);
 
@@ -68,20 +69,20 @@ unsigned long lastBurstTime = 0;
 void setup() {
   Serial.begin(115200);
 
-  // Ha xung 80MHz de lam mat CPU
+  // Ha xung 80MHz lam mat
   setCpuFrequencyMhz(80);
 
-  // Khoi tao WiFi AP+STA
-  WiFi.mode(WIFI_AP_STA);
+  // 🔥 TRIỆT TIÊU SOFTAP: Chuyển hẳn sang STA-Only, KHÔNG CÒN BẤT KỲ MẠNG "ESP32" NÀO!
+  WiFi.mode(WIFI_STA);
   WiFi.setSleep(true);
   WiFi.begin("Trong Khang", "khongbiet123");
 
-  // Giam cong suat phat song Wi-Fi ve 5dBm (chi 3mW, cuc ky mat va an toan)
+  // Cong suat 5dBm (sieu mat 3mW)
   WiFi.setTxPower(WIFI_POWER_5dBm);
 
-  addLog("❄️ DA KICH HOAT CHE DO SIÊU MÁT: TxPower 5dBm, Burst 250ms (98% Idle)!");
+  addLog("👻 ĐÃ TẮT HOÀN TOÀN SOFTAP (Ẩn hẳn ESP32)! Đang phát 6 Wi-Fi Troll...");
 
-  // Endpoints OTA & Giam sat
+  // Endpoints OTA & Giám sát
   server.on("/log", HTTP_GET, []() {
     float temp = temperatureRead();
     String out = logs + "\n🌡️ NHIET DO CHIP: " + String(temp, 1) + " C";
@@ -121,7 +122,7 @@ void loop() {
     addLog("🎉 Wi-Fi OK! IP: " + WiFi.localIP().toString() + " (Kênh: " + String(curChannel) + ")");
   }
 
-  // Chu ky phat 250ms: Ban 7 goi mat dung 3.5ms, con lai 246.5ms cho bo phat PA nghi hoan toan
+  // Chu ky 250ms: Bắn 6 gói trong 3ms rồi nghỉ 247ms
   unsigned long now = millis();
   if (now - lastBurstTime >= 250) {
     lastBurstTime = now;
@@ -141,7 +142,8 @@ void loop() {
       memset(&beaconPacket[38], ' ', 32);
       memcpy(&beaconPacket[38], name, nameLen);
 
-      esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, sizeof(beaconPacket), false);
+      // Bắn qua interface STA
+      esp_wifi_80211_tx(WIFI_IF_STA, beaconPacket, sizeof(beaconPacket), false);
       delayMicroseconds(500);
     }
   }
