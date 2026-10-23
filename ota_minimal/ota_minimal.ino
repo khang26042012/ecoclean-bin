@@ -1,9 +1,9 @@
 /*
- * ESP32-C3 MULTI-SSID BEACON - TROLL EDITION (HIDDEN AP + HIGH COMPATIBILITY)
- * 1. WiFi.softAP("invisible", ..., 1, 1) -> Ẩn vĩnh viễn SoftAP (100% không còn ESP32-SERVO)
- * 2. WIFI_IF_AP active -> Bắn 6 mạng Wi-Fi troll rõ ràng, điện thoại quét thấy ngay lập tức!
- * 3. TxPower 5dBm, Burst 120ms -> Mát rượi (48-52°C)
- * 4. Giữ kết nối STA Trong Khang & Web OTA (/update, /temp, /log)
+ * ESP32-C3 MULTI-SSID BEACON - PERFECT TROLL EDITION
+ * 1. SoftAP native = "01. Tao co wifi" (Xóa sạch 100% chữ ESP32-SERVO)
+ * 2. Beacons = "02. Tao cung co" -> "06. Co caizai, tao manh nhat"
+ * 3. Chỉ phát beacon SAU KHI đã kết nối ổn định vào "Trong Khang"
+ * 4. TxPower 8.5dBm, Burst 120ms -> Mát rượi (48-52°C)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -19,7 +19,7 @@ void addLog(String s) {
   if (logs.length() > 2000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-// 6 Mang Wi-Fi troll sap xep theo thu tu
+// Danh sach mang
 const char* ssids[] = {
   "01. Tao co wifi",
   "02. Tao cung co",
@@ -69,23 +69,22 @@ unsigned long lastBurstTime = 0;
 void setup() {
   Serial.begin(115200);
 
-  // Ha xung 80MHz lam mat
+  // Ha xung 80MHz de lam mat
   setCpuFrequencyMhz(80);
 
-  // Kich hoat AP_STA de mo kenh WIFI_IF_AP cho ham esp_wifi_80211_tx
+  // Kich hoat AP_STA
   WiFi.mode(WIFI_AP_STA);
-  WiFi.setSleep(true);
 
-  // 🔥 ẨN HOÀN TOÀN MẠNG GỐC: ssid_hidden = 1, tên "invisible" -> 100% không hiện chữ ESP32 hay SERVO!
-  WiFi.softAP("invisible", "12345678", 1, 1, 1);
+  // Mang SoftAP chinh thuc la "01. Tao co wifi" -> Khong he co ten ESP32 hay SERVO!
+  WiFi.softAP("01. Tao co wifi", "12345678");
 
   // Ket noi WiFi nha
   WiFi.begin("Trong Khang", "khongbiet123");
 
-  // Cong suat 5dBm (chi 3mW) vua tiet kiem dien vua mat ruoi
-  WiFi.setTxPower(WIFI_POWER_5dBm);
+  // Ha cong suat phat song xuong 8.5dBm
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
-  addLog("🚀 ĐÃ KÍCH HOẠT: Ẩn SoftAP gốc + Bắn 6 Wi-Fi Troll qua WIFI_IF_AP!");
+  addLog("🚀 Khoi dong xong! Da doi SoftAP thanh: 01. Tao co wifi");
 
   // Endpoints OTA & Giam sat
   server.on("/log", HTTP_GET, []() {
@@ -120,36 +119,37 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  static bool wifiAnnounced = false;
-  if (!wifiAnnounced && WiFi.status() == WL_CONNECTED) {
-    wifiAnnounced = true;
-    curChannel = WiFi.channel();
-    addLog("🎉 Wi-Fi OK! IP: " + WiFi.localIP().toString() + " (Kênh: " + String(curChannel) + ")");
-  }
+  // Chi phat beacon sau khi da ket noi vao Wi-Fi nha de tranh lam rot mang
+  if (WiFi.status() == WL_CONNECTED) {
+    static bool wifiAnnounced = false;
+    if (!wifiAnnounced) {
+      wifiAnnounced = true;
+      curChannel = WiFi.channel();
+      addLog("🎉 Wi-Fi OK! IP: " + WiFi.localIP().toString() + " (Kênh: " + String(curChannel) + ")");
+    }
 
-  // Chu ky 120ms: Ban 6 goi tin qua WIFI_IF_AP (mat 3ms), 117ms nghi ngoi
-  unsigned long now = millis();
-  if (now - lastBurstTime >= 120) {
-    lastBurstTime = now;
+    unsigned long now = millis();
+    if (now - lastBurstTime >= 120) {
+      lastBurstTime = now;
+      beaconPacket[82] = (curChannel > 0 && curChannel <= 14) ? curChannel : 1;
 
-    beaconPacket[82] = (curChannel > 0 && curChannel <= 14) ? curChannel : 1;
+      // Ban 5 mang con lai tu 02 den 06
+      for (int i = 1; i < NUM_SSIDS; i++) {
+        const char* name = ssids[i];
+        int nameLen = strlen(name);
+        if (nameLen > 32) nameLen = 32;
 
-    for (int i = 0; i < NUM_SSIDS; i++) {
-      const char* name = ssids[i];
-      int nameLen = strlen(name);
-      if (nameLen > 32) nameLen = 32;
+        beaconPacket[10] = 0x02;
+        beaconPacket[15] = (uint8_t)(i + 1);
+        beaconPacket[16] = 0x02;
+        beaconPacket[21] = (uint8_t)(i + 1);
 
-      beaconPacket[10] = 0x02;
-      beaconPacket[15] = (uint8_t)(i + 1);
-      beaconPacket[16] = 0x02;
-      beaconPacket[21] = (uint8_t)(i + 1);
+        memset(&beaconPacket[38], ' ', 32);
+        memcpy(&beaconPacket[38], name, nameLen);
 
-      memset(&beaconPacket[38], ' ', 32);
-      memcpy(&beaconPacket[38], name, nameLen);
-
-      // Bắn qua WIFI_IF_AP (chuan 802.11 cho Beacon)
-      esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, sizeof(beaconPacket), false);
-      delayMicroseconds(500);
+        esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, sizeof(beaconPacket), false);
+        delayMicroseconds(600);
+      }
     }
   }
 
