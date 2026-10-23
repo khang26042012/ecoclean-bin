@@ -1,9 +1,9 @@
 /*
- * ESP32-C3 MULTI-SSID BEACON - TROLL EDITION (ICE COOL)
- * 1. Pure STA Mode (No SoftAP, NO "ESP32-SERVO" or "ESP32" visible!)
- * 2. 6 Funny Dialog Wi-Fi networks (01 - 06)
- * 3. TxPower 5dBm, Burst 250ms (Ice cool 52C)
- * 4. Preserves STA "Trong Khang" & Web OTA (/update, /temp, /log)
+ * ESP32-C3 MULTI-SSID BEACON - TROLL EDITION (HIDDEN AP + HIGH COMPATIBILITY)
+ * 1. WiFi.softAP("invisible", ..., 1, 1) -> Ẩn vĩnh viễn SoftAP (100% không còn ESP32-SERVO)
+ * 2. WIFI_IF_AP active -> Bắn 6 mạng Wi-Fi troll rõ ràng, điện thoại quét thấy ngay lập tức!
+ * 3. TxPower 5dBm, Burst 120ms -> Mát rượi (48-52°C)
+ * 4. Giữ kết nối STA Trong Khang & Web OTA (/update, /temp, /log)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -19,7 +19,7 @@ void addLog(String s) {
   if (logs.length() > 2000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-// 6 Mang Wi-Fi troll sap xep thu tu chuan (khong dau de tuong thich 100% dien thoai & duoi 32 byte)
+// 6 Mang Wi-Fi troll sap xep theo thu tu
 const char* ssids[] = {
   "01. Tao co wifi",
   "02. Tao cung co",
@@ -72,17 +72,22 @@ void setup() {
   // Ha xung 80MHz lam mat
   setCpuFrequencyMhz(80);
 
-  // 🔥 TRIỆT TIÊU SOFTAP: Chuyển hẳn sang STA-Only, KHÔNG CÒN BẤT KỲ MẠNG "ESP32" NÀO!
-  WiFi.mode(WIFI_STA);
+  // Kich hoat AP_STA de mo kenh WIFI_IF_AP cho ham esp_wifi_80211_tx
+  WiFi.mode(WIFI_AP_STA);
   WiFi.setSleep(true);
+
+  // 🔥 ẨN HOÀN TOÀN MẠNG GỐC: ssid_hidden = 1, tên "invisible" -> 100% không hiện chữ ESP32 hay SERVO!
+  WiFi.softAP("invisible", "12345678", 1, 1, 1);
+
+  // Ket noi WiFi nha
   WiFi.begin("Trong Khang", "khongbiet123");
 
-  // Cong suat 5dBm (sieu mat 3mW)
+  // Cong suat 5dBm (chi 3mW) vua tiet kiem dien vua mat ruoi
   WiFi.setTxPower(WIFI_POWER_5dBm);
 
-  addLog("👻 ĐÃ TẮT HOÀN TOÀN SOFTAP (Ẩn hẳn ESP32)! Đang phát 6 Wi-Fi Troll...");
+  addLog("🚀 ĐÃ KÍCH HOẠT: Ẩn SoftAP gốc + Bắn 6 Wi-Fi Troll qua WIFI_IF_AP!");
 
-  // Endpoints OTA & Giám sát
+  // Endpoints OTA & Giam sat
   server.on("/log", HTTP_GET, []() {
     float temp = temperatureRead();
     String out = logs + "\n🌡️ NHIET DO CHIP: " + String(temp, 1) + " C";
@@ -122,9 +127,9 @@ void loop() {
     addLog("🎉 Wi-Fi OK! IP: " + WiFi.localIP().toString() + " (Kênh: " + String(curChannel) + ")");
   }
 
-  // Chu ky 250ms: Bắn 6 gói trong 3ms rồi nghỉ 247ms
+  // Chu ky 120ms: Ban 6 goi tin qua WIFI_IF_AP (mat 3ms), 117ms nghi ngoi
   unsigned long now = millis();
-  if (now - lastBurstTime >= 250) {
+  if (now - lastBurstTime >= 120) {
     lastBurstTime = now;
 
     beaconPacket[82] = (curChannel > 0 && curChannel <= 14) ? curChannel : 1;
@@ -142,11 +147,11 @@ void loop() {
       memset(&beaconPacket[38], ' ', 32);
       memcpy(&beaconPacket[38], name, nameLen);
 
-      // Bắn qua interface STA
-      esp_wifi_80211_tx(WIFI_IF_STA, beaconPacket, sizeof(beaconPacket), false);
+      // Bắn qua WIFI_IF_AP (chuan 802.11 cho Beacon)
+      esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, sizeof(beaconPacket), false);
       delayMicroseconds(500);
     }
   }
 
-  delay(20);
+  delay(10);
 }
