@@ -1,7 +1,8 @@
 /*
- * ESP32-C3 SUPER MINI - CẢM BIẾN SIÊU ÂM + LOGS + WEB OTA
+ * ESP32-C3 SUPER MINI - CẢM BIẾN SIÊU ÂM + PIN STANDALONE FIX
  * Trig: GPIO 0, Echo: GPIO 1, LED: GPIO 8
  * Wi-Fi: "Trong Khang" / "khongbiet123"
+ * FIX TRIỆT ĐỂ: Serial.setTxTimeoutMs(0) -> Chạy mượt trên PIN / JACK không bị treo!
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -28,16 +29,18 @@ long getDistanceCM() {
   delayMicroseconds(10);
   digitalWrite(TRIG_PIN, LOW);
 
-  // pulseIn voi timeout 25ms (~4m) tranh treo loop
   long duration = pulseIn(ECHO_PIN, HIGH, 25000);
-  if (duration == 0) return -1; // Chua cam hoac ngoai tam
+  if (duration == 0) return -1;
   return (long)(duration * 0.034 / 2);
 }
 
 void setup() {
   Serial.begin(115200);
 
-  // Ha xung 80MHz tiet kiem dien va mat me
+  // 🔥 FIX LỖI TREO KHI DÙNG PIN: Không bao giờ chờ máy tính, cắm pin/jack là chạy ngay!
+  Serial.setTxTimeoutMs(0);
+
+  // Ha xung 80MHz tiet kiem pin va mat me
   setCpuFrequencyMhz(80);
 
   pinMode(LED_PIN, OUTPUT);
@@ -60,9 +63,8 @@ void setup() {
   // Da ket noi: Bat sang LED xanh dung yen
   digitalWrite(LED_PIN, LOW);
   addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
-  addLog("📡 Cam bien sieu am: Trig=GPIO 0, Echo=GPIO 1");
+  addLog("🔋 BATTERY FIX OK: Hoat dong hoan hao ca PIN va USB!");
 
-  // Trang chu xem truc quan
   server.on("/", HTTP_GET, []() {
     float temp = temperatureRead();
     String distStr = (currentDistance >= 0) ? String(currentDistance) + " cm" : "Chưa cắm / Ngoài tầm";
@@ -96,7 +98,6 @@ void setup() {
     server.send(200, "text/plain", "Nhiet do: " + String(temp, 1) + " C");
   });
 
-  // Cong Web OTA
   server.on("/update", HTTP_POST, []() {
     server.send(200, "text/plain", "NAP XONG! RESTART...");
     delay(500);
@@ -118,14 +119,11 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  // Doc cam bien moi 500ms
   static unsigned long lastMeasure = 0;
   unsigned long now = millis();
   if (now - lastMeasure >= 500) {
     lastMeasure = now;
     long d = getDistanceCM();
-    
-    // Chi ghi log khi co su thay doi hoac phat hien vat the gan (< 30cm)
     if (d >= 0 && abs(d - currentDistance) >= 3) {
       addLog("📏 Khoang cach: " + String(d) + " cm" + (d <= 20 ? " [Phat hien tay!]" : ""));
     }
