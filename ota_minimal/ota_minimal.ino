@@ -1,7 +1,6 @@
 /*
- * ESP32-C3 SUPER MINI - PURE GPIO 0 & 1 ULTRASONIC TEST
- * NO SERIAL (Zero UART interference on GPIO 20/21)
- * Real-time test of both directions on pins 0 & 1
+ * ECO-CLEAN SENSOR - DEEP DIAGNOSTIC ON (0,1) AND (20,21)
+ * High-voltage pulse (25us), 50ms Echo timeout, 70ms acoustic quiet time
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -11,34 +10,32 @@
 
 WebServer server(80);
 String logs = "";
-long distA = -1; // Trig=0, Echo=1
-long distB = -1; // Trig=1, Echo=0
-long durA = 0;
-long durB = 0;
+long dur_0_1 = 0;
+long dur_1_0 = 0;
+long dur_20_21 = 0;
+long dur_21_20 = 0;
 
 void addLog(String s) {
   logs += s + "\n";
-  if (logs.length() > 2500) logs = logs.substring(logs.indexOf('\n') + 1);
+  if (logs.length() > 3000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-long pingPins(int trig, int echo, long &outDur) {
+long pingPair(int trig, int echo) {
   pinMode(trig, OUTPUT);
   pinMode(echo, INPUT);
-  
+
   digitalWrite(trig, LOW);
-  delayMicroseconds(4);
+  delayMicroseconds(5);
   digitalWrite(trig, HIGH);
-  delayMicroseconds(10);
+  delayMicroseconds(25); // Xung 25us dam bao clone HC-SR04 bat duoc 100%
   digitalWrite(trig, LOW);
 
-  long dur = pulseIn(echo, HIGH, 30000);
-  outDur = dur;
-  if (dur <= 0) return -1;
-  return (long)(dur * 0.034 / 2);
+  // Timeout 50ms (50000us) de khong bao gio bi cat mat xung
+  long dur = pulseIn(echo, HIGH, 50000);
+  return dur;
 }
 
 void setup() {
-  // KHONG DUNG SERIAL DE TRANH XUNG DOT PHAN CUNG
   setCpuFrequencyMhz(80);
 
   pinMode(LED_PIN, OUTPUT);
@@ -55,27 +52,13 @@ void setup() {
   }
   digitalWrite(LED_PIN, LOW); // Sang LED on dinh
 
-  addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
-
-  server.on("/distance", HTTP_GET, []() {
-    long best = (distA >= 0) ? distA : distB;
-    server.send(200, "text/plain", String(best));
-  });
-
-  server.on("/raw", HTTP_GET, []() {
-    int p0 = digitalRead(0);
-    int p1 = digitalRead(1);
-    String s = "State: P0=" + String(p0) + ", P1=" + String(p1) + "\n";
-    s += "Kieu A (Trig=0, Echo=1): Dist=" + String(distA) + " cm, Dur=" + String(durA) + " us\n";
-    s += "Kieu B (Trig=1, Echo=0): Dist=" + String(distB) + " cm, Dur=" + String(durB) + " us";
-    server.send(200, "text/plain", s);
-  });
-
-  server.on("/log", HTTP_GET, []() {
-    float temp = temperatureRead();
-    String s = "State: P0=" + String(digitalRead(0)) + ", P1=" + String(digitalRead(1)) + " | Temp=" + String(temp, 1) + " C\n";
-    s += "A(0->1): " + String(distA) + " cm (" + String(durA) + " us) | B(1->0): " + String(distB) + " cm (" + String(durB) + " us)\n";
-    s += logs;
+  server.on("/diag", HTTP_GET, []() {
+    String s = "=== KẾT QUẢ ĐO XUNG THỰC TẾ TRÊN CẢ 4 CẤU HÌNH ===\n";
+    s += "1. Trig=0,  Echo=1  -> Dur=" + String(dur_0_1) + " us" + (dur_0_1 > 0 ? " [KHOANG CACH: " + String((long)(dur_0_1 * 0.034 / 2)) + " cm]" : "") + "\n";
+    s += "2. Trig=1,  Echo=0  -> Dur=" + String(dur_1_0) + " us" + (dur_1_0 > 0 ? " [KHOANG CACH: " + String((long)(dur_1_0 * 0.034 / 2)) + " cm]" : "") + "\n";
+    s += "3. Trig=20, Echo=21 -> Dur=" + String(dur_20_21) + " us" + (dur_20_21 > 0 ? " [KHOANG CACH: " + String((long)(dur_20_21 * 0.034 / 2)) + " cm]" : "") + "\n";
+    s += "4. Trig=21, Echo=20 -> Dur=" + String(dur_21_20) + " us" + (dur_21_20 > 0 ? " [KHOANG CACH: " + String((long)(dur_21_20 * 0.034 / 2)) + " cm]" : "") + "\n";
+    s += "Pin states: P0=" + String(digitalRead(0)) + " P1=" + String(digitalRead(1)) + " P20=" + String(digitalRead(20)) + " P21=" + String(digitalRead(21)) + "\n";
     server.send(200, "text/plain; charset=utf-8", s);
   });
 
@@ -109,25 +92,19 @@ void loop() {
     return;
   }
 
-  static unsigned long lastP = 0;
+  static unsigned long lastRun = 0;
   unsigned long now = millis();
-  if (now - lastP >= 70) {
-    lastP = now;
+  if (now - lastRun >= 300) {
+    lastRun = now;
 
-    // Do Kieu A (Trig 0 -> Echo 1)
-    distA = pingPins(0, 1, durA);
-    delay(20);
-    // Do Kieu B (Trig 1 -> Echo 0)
-    distB = pingPins(1, 0, durB);
-
-    long valid = (distA >= 0) ? distA : distB;
-    if (valid >= 0) {
-      static long lastValid = -999;
-      if (abs(valid - lastValid) >= 2) {
-        lastValid = valid;
-        addLog("📏 DO DUOC: " + String(valid) + " cm (A=" + String(distA) + ", B=" + String(distB) + ")");
-      }
-    }
+    // Do lan luot 4 cap voi thoi gian nghi 70ms giua cac lan de tranh vang am
+    dur_0_1 = pingPair(0, 1);
+    delay(70);
+    dur_1_0 = pingPair(1, 0);
+    delay(70);
+    dur_20_21 = pingPair(20, 21);
+    delay(70);
+    dur_21_20 = pingPair(21, 20);
   }
 
   delay(5);
