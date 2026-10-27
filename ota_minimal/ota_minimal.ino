@@ -1,6 +1,5 @@
 /*
- * ESP32-C3 SUPER MINI - PULSE HUNTER & DIAGNOSTIC
- * Scans GPIO 0, 1, 2, 4, 5 to find which pin receives Echo pulse!
+ * ESP32-C3 SUPER MINI - TEST GPIO 3 & GPIO 4 (PINS 7 & 8)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -9,34 +8,21 @@
 #define LED_PIN 8
 
 WebServer server(80);
-String diagResult = "Chưa chạy test";
 long currentDistance = -1;
+String pinPair = "Chưa xác định";
 
-String testPair(int trig, int echo) {
+long measureWithPins(int trig, int echo) {
   pinMode(trig, OUTPUT);
-  pinMode(echo, INPUT_PULLDOWN);
+  pinMode(echo, INPUT);
   digitalWrite(trig, LOW);
-  delayMicroseconds(5);
+  delayMicroseconds(2);
   digitalWrite(trig, HIGH);
-  delayMicroseconds(12);
+  delayMicroseconds(10);
   digitalWrite(trig, LOW);
 
-  // Doc nhanh xem co bat ky xung HIGH nao khong trong 15000us
-  unsigned long start = micros();
-  long highCount = 0;
-  long firstHighUs = -1;
-  while (micros() - start < 15000) {
-    if (digitalRead(echo) == HIGH) {
-      highCount++;
-      if (firstHighUs < 0) firstHighUs = micros() - start;
-    }
-  }
-
-  if (highCount > 0) {
-    long dist = (firstHighUs * 0.034) / 2;
-    return "🔥 PHÁT HIỆN XUNG! Trig=" + String(trig) + " Echo=" + String(echo) + " -> Samples=" + String(highCount) + " | Delay=" + String(firstHighUs) + "us (~" + String(dist) + "cm)";
-  }
-  return "Trig=" + String(trig) + " Echo=" + String(echo) + " -> 0 xung";
+  long duration = pulseIn(echo, HIGH, 30000);
+  if (duration <= 0) return -1;
+  return (long)(duration * 0.034 / 2);
 }
 
 void setup() {
@@ -58,35 +44,14 @@ void setup() {
   }
   digitalWrite(LED_PIN, LOW);
 
-  server.on("/scan", HTTP_GET, []() {
-    String out = "=== KẾT QUẢ QUÉT TẤT CẢ CÁC CẶP CHÂN ===\n";
-    // Test cac cap co the: (0,1), (1,0), (0,2), (2,0), (1,2), (2,1), (0,4), (4,0)
-    int testPins[] = {0, 1, 2, 4};
-    for (int i = 0; i < 4; i++) {
-      for (int j = 0; j < 4; j++) {
-        if (i != j) {
-          out += testPair(testPins[i], testPins[j]) + "\n";
-        }
-      }
-    }
-    diagResult = out;
-    server.send(200, "text/plain; charset=utf-8", out);
+  server.on("/distance", HTTP_GET, []() {
+    server.send(200, "text/plain", String(currentDistance));
   });
 
   server.on("/raw", HTTP_GET, []() {
-    String s = "GPIO0=" + String(digitalRead(0)) + " | GPIO1=" + String(digitalRead(1)) + " | GPIO2=" + String(digitalRead(2)) + " | GPIO4=" + String(digitalRead(4));
+    String s = "Dist=" + String(currentDistance) + " cm | Config: " + pinPair;
+    s += " | GPIO0=" + String(digitalRead(0)) + " GPIO1=" + String(digitalRead(1)) + " GPIO3=" + String(digitalRead(3)) + " GPIO4=" + String(digitalRead(4));
     server.send(200, "text/plain", s);
-  });
-
-  server.on("/", HTTP_GET, []() {
-    float temp = temperatureRead();
-    String html = "<html><head><meta charset='utf-8'><title>Pulse Hunter</title></head><body>";
-    html += "<h2>Pulse Hunter Diagnostic</h2>";
-    html += "<p><a href='/scan'>Bấm vào đây để Quét tìm xung cảm biến (/scan)</a></p>";
-    html += "<p><a href='/raw'>Xem trạng thái các chân (/raw)</a></p>";
-    html += "<pre>" + diagResult + "</pre>";
-    html += "</body></html>";
-    server.send(200, "text/html; charset=utf-8", html);
   });
 
   server.on("/update", HTTP_POST, []() {
@@ -109,5 +74,41 @@ void setup() {
 
 void loop() {
   server.handleClient();
-  delay(10);
+
+  static unsigned long lastMeasure = 0;
+  unsigned long now = millis();
+  if (now - lastMeasure >= 200) {
+    lastMeasure = now;
+
+    // Test Thu 1: Trig=3, Echo=4
+    long d = measureWithPins(3, 4);
+    if (d >= 0 && d <= 400) {
+      currentDistance = d;
+      pinPair = "Trig=GPIO3 (Lỗ 7), Echo=GPIO4 (Lỗ 8)";
+    } else {
+      // Test Thu 2: Trig=4, Echo=3
+      d = measureWithPins(4, 3);
+      if (d >= 0 && d <= 400) {
+        currentDistance = d;
+        pinPair = "Trig=GPIO4 (Lỗ 8), Echo=GPIO3 (Lỗ 7)";
+      } else {
+        // Test Thu 3: Trig=0, Echo=1 (nếu cắm lỗ 4 & 5)
+        d = measureWithPins(0, 1);
+        if (d >= 0 && d <= 400) {
+          currentDistance = d;
+          pinPair = "Trig=GPIO0 (Lỗ 4), Echo=GPIO1 (Lỗ 5)";
+        } else {
+          d = measureWithPins(1, 0);
+          if (d >= 0 && d <= 400) {
+            currentDistance = d;
+            pinPair = "Trig=GPIO1 (Lỗ 5), Echo=GPIO0 (Lỗ 4)";
+          } else {
+            currentDistance = -1;
+          }
+        }
+      }
+    }
+  }
+
+  delay(5);
 }
