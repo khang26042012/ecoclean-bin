@@ -1,43 +1,46 @@
 /*
- * ECO-CLEAN BIN - ALL-PIN AUTONOMOUS SCANNER
- * Searches all possible pin combinations until the placed object is detected!
+ * ECO-CLEAN SENSOR - REAL-TIME TRANSPARENT SENSOR READINGS
+ * Trig: GPIO 20, Echo: GPIO 21
+ * Always reports real measurement (including -1 if out of range)
  */
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
 
-#define LED_PIN 8
+#define TRIG_PIN 20
+#define ECHO_PIN 21
+#define LED_PIN  8
 
 WebServer server(80);
 String logs = "";
-long foundDist = -1;
-String lockedPair = "Đang quét tất cả các chân...";
-bool isLocked = false;
-int lockedTrig = -1;
-int lockedEcho = -1;
+long currentDist = -1;
+long rawDuration = 0;
 
 void addLog(String s) {
   Serial.println(s);
   logs += s + "\n";
-  if (logs.length() > 3000) logs = logs.substring(logs.indexOf('\n') + 1);
+  if (logs.length() > 2500) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-long checkPulse(int trig, int echo) {
-  pinMode(trig, OUTPUT);
-  pinMode(echo, INPUT);
-  
-  digitalWrite(trig, LOW);
-  delayMicroseconds(4);
-  digitalWrite(trig, HIGH);
-  delayMicroseconds(12);
-  digitalWrite(trig, LOW);
+long readUltrasonic() {
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
 
-  // pulseIn voi timeout 35000us (~6m)
-  long dur = pulseIn(echo, HIGH, 35000);
-  if (dur > 120 && dur < 24000) { // Hop le: 2cm den 400cm
-    return (long)(dur * 0.034 / 2);
-  }
-  return -1;
+  // Dam bao Trig o muc LOW truoc
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(5);
+
+  // Phat xung 10us
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  // pulseIn timeout 25000us (~4.2m)
+  long dur = pulseIn(ECHO_PIN, HIGH, 25000);
+  rawDuration = dur;
+
+  if (dur <= 0) return -1;
+  return (long)(dur * 0.034 / 2);
 }
 
 void setup() {
@@ -60,36 +63,36 @@ void setup() {
   digitalWrite(LED_PIN, LOW); // Sang LED on dinh
 
   addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
-  addLog("🔍 KHOI DONG CHE DO QUET LIEN TUC: Tu dong tim cap chan phat hien vat!");
+  addLog("📡 Che do do truc tiep Trig=20, Echo=21 (Khong loc so cu)");
 
   server.on("/distance", HTTP_GET, []() {
-    server.send(200, "text/plain", String(foundDist));
+    server.send(200, "text/plain", String(currentDist));
+  });
+
+  server.on("/raw", HTTP_GET, []() {
+    String s = "Dist=" + String(currentDist) + " cm | Duration=" + String(rawDuration) + " us | EchoPinState=" + String(digitalRead(ECHO_PIN));
+    server.send(200, "text/plain", s);
   });
 
   server.on("/log", HTTP_GET, []() {
     float temp = temperatureRead();
-    String out = logs + "\n[LIVE] Khoang cach: " + String(foundDist) + " cm | " + lockedPair + " | Temp: " + String(temp, 1) + " C";
+    String out = logs + "\n[LIVE] Dist: " + String(currentDist) + " cm | RawDur: " + String(rawDuration) + " us | Temp: " + String(temp, 1) + " C";
     server.send(200, "text/plain; charset=utf-8", out);
-  });
-
-  server.on("/status", HTTP_GET, []() {
-    String s = "Dist=" + String(foundDist) + " cm | Pair=" + lockedPair;
-    server.send(200, "text/plain", s);
   });
 
   server.on("/", HTTP_GET, []() {
     float temp = temperatureRead();
-    String distText = (foundDist >= 0) ? String(foundDist) + " cm" : "Đang quét tìm vật cản...";
+    String distText = (currentDist >= 0) ? String(currentDist) + " cm" : "Ngoài tầm / Timeout (-1)";
     String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-    html += "<title>EcoClean Distance Finder</title>";
+    html += "<title>EcoClean Live Distance</title>";
     html += "<style>body{font-family:sans-serif;text-align:center;padding:20px;background:#181818;color:#fff;}";
     html += ".card{background:#242424;border-radius:14px;padding:25px;max-width:380px;margin:15px auto;}";
-    html += ".dist{font-size:48px;font-weight:bold;color:#00e676;margin:15px 0;}";
-    html += ".cfg{color:#ffd54f;font-size:16px;}";
+    html += ".dist{font-size:52px;font-weight:bold;color:" + String(currentDist >= 0 ? "#00e676" : "#ff5252") + ";margin:15px 0;}";
+    html += ".info{color:#ffd54f;font-size:16px;}";
     html += "</style><meta http-equiv='refresh' content='1'></head><body>";
-    html += "<div class='card'><h2>KẾT QUẢ ĐO VẬT CẢN</h2>";
+    html += "<div class='card'><h2>KHOẢNG CÁCH THỰC TẾ</h2>";
     html += "<div class='dist'>" + distText + "</div>";
-    html += "<p class='cfg'>" + lockedPair + "</p>";
+    html += "<p class='info'>Thời gian xung: " + String(rawDuration) + " &micro;s</p>";
     html += "<p style='color:#81c784;'>Nhiệt độ chip: " + String(temp, 1) + " &deg;C</p>";
     html += "<p><a href='/log' style='color:#ffb74d;'>Xem Nhật ký (Log)</a></p>";
     html += "</div></body></html>";
@@ -114,22 +117,6 @@ void setup() {
   server.begin();
 }
 
-// Danh sach tat ca cac cap chan co the co:
-// 1) Cap chan 0 & 1 (uu tien hang dau)
-// 2) Cap chan 20 & 21
-// 3) Cap chan 3 & 4
-// 4) Cap chan 1 & 2
-// 5) Cap chan 2 & 3
-const int pairList[][2] = {
-  {0, 1}, {1, 0},
-  {20, 21}, {21, 20},
-  {3, 4}, {4, 3},
-  {1, 2}, {2, 1},
-  {2, 3}, {3, 2},
-  {0, 2}, {2, 0}
-};
-const int NUM_PAIRS = sizeof(pairList) / sizeof(pairList[0]);
-
 void loop() {
   server.handleClient();
 
@@ -142,34 +129,23 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
   }
 
-  static unsigned long lastRun = 0;
+  static unsigned long lastPing = 0;
   unsigned long now = millis();
-  if (now - lastRun >= 60) {
-    lastRun = now;
+  if (now - lastPing >= 80) { // Chu ky do 80ms
+    lastPing = now;
+    
+    // Luon cap nhat gia tri that, khong giu lai so cu
+    long d = readUltrasonic();
+    currentDist = d;
 
-    if (isLocked) {
-      // Neu da khoa cap chan thanh cong: Do lien tuc cap chan nay
-      long d = checkPulse(lockedTrig, lockedEcho);
-      if (d >= 2 && d <= 350) {
-        foundDist = d;
-      }
-    } else {
-      // Quet lan luot tung cap chan cho den khi bat duoc song phan hoi!
-      for (int i = 0; i < NUM_PAIRS; i++) {
-        int t = pairList[i][0];
-        int e = pairList[i][1];
-        long d = checkPulse(t, e);
-        if (d >= 2 && d <= 350) {
-          foundDist = d;
-          lockedTrig = t;
-          lockedEcho = e;
-          isLocked = true;
-          lockedPair = "🎯 ĐÃ KHÓA THÀNH CÔNG: Trig=GPIO " + String(t) + ", Echo=GPIO " + String(e);
-          addLog("🎉 THÀNH CÔNG RỒI! Bắt được khoảng cách: " + String(d) + " cm");
-          addLog("🎯 Khóa cấu hình: Trig=GPIO " + String(t) + ", Echo=GPIO " + String(e));
-          break;
-        }
-        delay(10);
+    // Ghi log khi co thay doi
+    static long lastLogged = -999;
+    if (abs(d - lastLogged) >= 2) {
+      lastLogged = d;
+      if (d >= 0) {
+        addLog("📏 Khoang cach: " + String(d) + " cm (" + String(rawDuration) + " us)" + (d <= 25 ? " [PHAT HIEN TAY!]" : ""));
+      } else {
+        addLog("⚠️ Ngoai tam do (-1)");
       }
     }
   }
