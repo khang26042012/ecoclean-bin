@@ -1,20 +1,31 @@
 /*
- * AGROSENSE MINI - THIẾT BỊ CẦM TAY ĐO ĐỘ ẨM ĐẤT
- * Cảm biến loại 1 (LM393): VCC -> 3V3, GND -> GND, A0 -> GPIO 0
- * Hiển thị Web Dashboard siêu đẹp theo thời gian thực
+ * AGROSENSE MINI - BỘ ĐÔI QUAN TRẮC NÔNG NGHIỆP THÔNG MINH
+ * 1. Cảm biến Độ Ẩm Đất (Soil Probe) -> GPIO 0
+ * 2. Cảm biến Đo Chất Lượng & Độ Mặn Nguồn Nước (Water Salinity & Quality) -> GPIO 1
+ * Tích hợp thuật toán đánh giá xâm nhập mặn (Ben Tre / Mien Tay context)
  */
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
 
-#define SOIL_PIN 0 // Chân Analog đọc độ ẩm đất
-#define LED_PIN  8
+#define SOIL_PIN  0 // Cảm biến đất (Analog ADC1_0)
+#define WATER_PIN 1 // Cảm biến chất lượng / độ mặn nước (Analog ADC1_1)
+#define LED_PIN   8
 
 WebServer server(80);
 String logs = "";
+
+// Biến đo độ ẩm đất
 int rawSoil = 0;
 int soilPercent = 0;
 String soilStatus = "Đang đo...";
+
+// Biến đo chất lượng & độ mặn nước
+int rawWater = 0;
+float salinityEst = 0.0; // Ước tính độ mặn (phần nghìn - ‰)
+String waterQuality = "Chưa nhúng nước";
+String waterAdvice = "Nhúng đầu cảm biến vào nước để kiểm tra";
+String waterColor = "#888";
 
 void addLog(String s) {
   Serial.println(s);
@@ -22,24 +33,49 @@ void addLog(String s) {
   if (logs.length() > 2500) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-void readSoilSensor() {
-  // Đọc giá trị ADC 12-bit (0 - 4095)
-  int val = analogRead(SOIL_PIN);
-  rawSoil = val;
-
-  // Cân chỉnh thực tế:
-  // Để ngoài không khí khô: val ~ 3200 - 3600 (0%)
-  // Cắm vào nước / đất ẩm: val ~ 1000 - 1400 (100%)
-  int pct = map(val, 3200, 1200, 0, 100);
-  pct = constrain(pct, 0, 100);
-  soilPercent = pct;
-
-  if (pct < 30) {
-    soilStatus = "🌵 ĐẤT KHÔ HẠN (Cần tưới nước ngay!)";
-  } else if (pct <= 75) {
-    soilStatus = "🌱 ĐỘ ẨM LÝ TƯỞNG (Cây phát triển tốt)";
+void readSensors() {
+  // 1. ĐO ĐỘ ẨM ĐẤT (GPIO 0)
+  int sVal = analogRead(SOIL_PIN);
+  rawSoil = sVal;
+  int sPct = map(sVal, 3200, 1100, 0, 100);
+  soilPercent = constrain(sPct, 0, 100);
+  if (soilPercent < 30) {
+    soilStatus = "🌵 ĐẤT KHÔ (Cần tưới nước)";
+  } else if (soilPercent <= 75) {
+    soilStatus = "🌱 ĐỘ ẨM LÝ TƯỞNG (Cây tốt)";
   } else {
-    soilStatus = "💧 ĐẤT RẤT ẨM / NGẬP NƯỚC (Ngừng tưới)";
+    soilStatus = "💧 ĐẤT RẤT ẨM / NGẬP NƯỚC";
+  }
+
+  // 2. ĐO ĐỘ DẪN ĐIỆN & ĐỘ MẶN NGUỒN NƯỚC (GPIO 1)
+  int wVal = analogRead(WATER_PIN);
+  rawWater = wVal;
+
+  if (wVal < 200) {
+    waterQuality = "KHÔ RÁO (Chưa nhúng nước)";
+    salinityEst = 0.0;
+    waterAdvice = "Hãy nhúng que cảm biến vào ly/kênh nước để kiểm tra";
+    waterColor = "#888888";
+  } else if (wVal < 1000) {
+    waterQuality = "💧 NƯỚC NGỌT TINH KHIẾT (Nước mưa / nước lọc)";
+    salinityEst = 0.1;
+    waterAdvice = "Độ dẫn điện cực thấp, nước rất sạch và an toàn!";
+    waterColor = "#29b6f6";
+  } else if (wVal < 2100) {
+    waterQuality = "🌱 NƯỚC NGỌT TƯỚI TIÊU AN TOÀN";
+    salinityEst = 0.4;
+    waterAdvice = "Nguồn nước ngọt đạt chuẩn, tưới cây sầu riêng, hoa màu rất tốt!";
+    waterColor = "#00e676";
+  } else if (wVal < 3100) {
+    waterQuality = "⚠️ CẢNH BÁO: NƯỚC LỢ / NHIỄM MẶN NHẸ";
+    salinityEst = 1.5;
+    waterAdvice = "Nước có dấu hiệu nhiễm mặn/phèn (khoảng 1 - 2‰). Không tưới sầu riêng!";
+    waterColor = "#ffa726";
+  } else {
+    waterQuality = "☠️ NGUY HIỂM: NƯỚC NHIỄM MẶN NẶNG / NƯỚC MUỐI";
+    salinityEst = 4.5;
+    waterAdvice = "Độ mặn rất cao (> 4‰)! Tuyệt đối KHÔNG được bơm tưới cây!";
+    waterColor = "#ff5252";
   }
 }
 
@@ -66,29 +102,52 @@ void setup() {
   digitalWrite(LED_PIN, LOW); // Đèn xanh sáng đứng yên
 
   addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
-  addLog("🌱 AgroSense Mini da san sang! Doc cam bien tren GPIO 0");
+  addLog("🌱 KHOI DONG TRẠM ĐO NÔNG NGHIỆP: Do am dat (GPIO 0) + Do man nuoc (GPIO 1)!");
 
+  // Giao diện Web Dashboard kép siêu đẹp
   server.on("/", HTTP_GET, []() {
     float temp = temperatureRead();
-    String color = (soilPercent < 30) ? "#ff5252" : (soilPercent <= 75 ? "#00e676" : "#29b6f6");
+    String soilColor = (soilPercent < 30) ? "#ff5252" : (soilPercent <= 75 ? "#00e676" : "#29b6f6");
+    
     String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-    html += "<title>AgroSense Mini</title>";
-    html += "<style>body{font-family:sans-serif;text-align:center;padding:20px;background:#141414;color:#fff;}";
-    html += ".card{background:#1f1f1f;border-radius:18px;padding:25px;max-width:380px;margin:10px auto;box-shadow:0 8px 24px rgba(0,0,0,0.6);}";
-    html += ".val{font-size:56px;font-weight:bold;color:" + color + ";margin:10px 0;}";
-    html += ".status{font-size:16px;font-weight:bold;padding:10px;border-radius:8px;background:#2a2a2a;margin:15px 0;}";
-    html += ".raw{color:#888;font-size:13px;}";
+    html += "<title>AgroSense Pro - Máy Đo Cầm Tay</title>";
+    html += "<style>";
+    html += "body{font-family:sans-serif;text-align:center;padding:15px;background:#121212;color:#fff;}";
+    html += ".header{margin-bottom:15px;}";
+    html += ".card{background:#1e1e1e;border-radius:16px;padding:20px;max-width:400px;margin:12px auto;box-shadow:0 8px 24px rgba(0,0,0,0.6);text-align:left;}";
+    html += ".title{font-size:14px;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;}";
+    html += ".val{font-size:46px;font-weight:bold;margin:8px 0;}";
+    html += ".badge{display:inline-block;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:bold;margin-top:5px;}";
+    html += ".desc{font-size:13px;color:#bbb;margin-top:10px;line-height:1.4;}";
     html += "</style><meta http-equiv='refresh' content='1'></head><body>";
+    
+    html += "<div class='header'><h2 style='margin:0;color:#00e676;'>🌱 AGROSENSE PRO</h2>";
+    html += "<p style='margin:4px 0;color:#888;font-size:13px;'>BỘ QUAN TRẮC ĐỘ ẨM ĐẤT & CẢNH BÁO XÂM NHẬP MẶN</p></div>";
+
+    // Khối 1: Độ ẩm đất
     html += "<div class='card'>";
-    html += "<h2 style='margin-top:0;'>🌱 AGROSENSE MINI</h2>";
-    html += "<p style='color:#bbb;'>ĐỘ ẨM ĐẤT TRỒNG TRỌT</p>";
-    html += "<div class='val'>" + String(soilPercent) + "%</div>";
-    html += "<div class='status'>" + soilStatus + "</div>";
-    html += "<p class='raw'>Điện áp ADC: " + String(rawSoil) + " / 4095</p>";
-    html += "<p style='color:#66bb6a;'>Nhiệt độ chip: " + String(temp, 1) + " &deg;C</p>";
-    html += "<p><a href='/log' style='color:#ffa726;text-decoration:none;'>Xem Nhật ký (Log)</a></p>";
-    html += "</div></body></html>";
+    html += "<div class='title'>1. Độ Ẩm Đất Trồng (Soil Moisture)</div>";
+    html += "<div class='val' style='color:" + soilColor + ";'>" + String(soilPercent) + "%</div>";
+    html += "<div class='badge' style='background:#2a2a2a;color:" + soilColor + ";'>" + soilStatus + "</div>";
+    html += "<div class='desc'>Tín hiệu ADC: " + String(rawSoil) + " / 4095</div>";
+    html += "</div>";
+
+    // Khối 2: Chất lượng & Độ mặn nước
+    html += "<div class='card'>";
+    html += "<div class='title'>2. Chất Lượng & Độ Mặn Nước Tưới (Water Salinity)</div>";
+    html += "<div class='val' style='color:" + waterColor + ";'>" + (rawWater < 200 ? "CHƯA NHÚNG" : String(salinityEst, 1) + " &permil;") + "</div>";
+    html += "<div class='badge' style='background:#2a2a2a;color:" + waterColor + ";'>" + waterQuality + "</div>";
+    html += "<div class='desc'>" + waterAdvice + "</div>";
+    html += "<div class='desc' style='color:#777;'>Độ dẫn điện ADC: " + String(rawWater) + " / 4095</div>";
+    html += "</div>";
+
+    html += "<p style='color:#81c784;font-size:14px;'>Nhiệt độ chip: " + String(temp, 1) + " &deg;C | <a href='/log' style='color:#ffa726;text-decoration:none;'>Xem Nhật ký (Log)</a></p>";
+    html += "</body></html>";
     server.send(200, "text/html", html);
+  });
+
+  server.on("/water", HTTP_GET, []() {
+    server.send(200, "text/plain", "RawADC=" + String(rawWater) + " | Salinity=" + String(salinityEst, 1) + " permil | Quality=" + waterQuality);
   });
 
   server.on("/soil", HTTP_GET, []() {
@@ -96,12 +155,12 @@ void setup() {
   });
 
   server.on("/raw", HTTP_GET, []() {
-    server.send(200, "text/plain", "RawADC=" + String(rawSoil) + " | Percent=" + String(soilPercent) + "%");
+    server.send(200, "text/plain", "SoilADC=" + String(rawSoil) + " (" + String(soilPercent) + "%) | WaterADC=" + String(rawWater) + " (" + String(salinityEst, 1) + " permil)");
   });
 
   server.on("/log", HTTP_GET, []() {
     float temp = temperatureRead();
-    String out = logs + "\n[LIVE] Do am dat: " + String(soilPercent) + "% (ADC: " + String(rawSoil) + ") | Temp: " + String(temp, 1) + " C";
+    String out = logs + "\n[LIVE] Dat: " + String(soilPercent) + "% | Nuoc: " + String(salinityEst, 1) + " permil (ADC " + String(rawWater) + ") | Temp: " + String(temp, 1) + " C";
     server.send(200, "text/plain; charset=utf-8", out);
   });
 
@@ -137,14 +196,14 @@ void loop() {
 
   static unsigned long lastMeasure = 0;
   unsigned long now = millis();
-  if (now - lastMeasure >= 300) {
+  if (now - lastMeasure >= 250) {
     lastMeasure = now;
-    readSoilSensor();
+    readSensors();
 
-    static int lastLoggedPct = -999;
-    if (abs(soilPercent - lastLoggedPct) >= 5) {
-      lastLoggedPct = soilPercent;
-      addLog("🌱 Độ ẩm đất thay đổi: " + String(soilPercent) + "% (ADC: " + String(rawSoil) + ") -> " + soilStatus);
+    static int lastWaterLogged = -999;
+    if (abs(rawWater - lastWaterLogged) >= 200) {
+      lastWaterLogged = rawWater;
+      addLog("🌊 Nguồn nước thay đổi (ADC " + String(rawWater) + "): " + waterQuality + " ~ " + String(salinityEst, 1) + " ‰");
     }
   }
 
