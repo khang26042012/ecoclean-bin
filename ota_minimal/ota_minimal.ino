@@ -1,7 +1,6 @@
 /*
- * ECO-CLEAN BIN - FORCED ECHO UNLOCK & HIGH-VOLTAGE HYBRID TRIGGER
- * Algorithm: Hardware state discharge before every ping to break clone HC-SR04 lock-up
- * Pins: GPIO 0 & GPIO 1
+ * ECO-CLEAN BIN - ALL-PIN AUTONOMOUS SCANNER
+ * Searches all possible pin combinations until the placed object is detected!
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -11,36 +10,34 @@
 
 WebServer server(80);
 String logs = "";
-long currentDist = -1;
-String activeConfig = "Đang mở khóa cảm biến...";
+long foundDist = -1;
+String lockedPair = "Đang quét tất cả các chân...";
+bool isLocked = false;
+int lockedTrig = -1;
+int lockedEcho = -1;
 
 void addLog(String s) {
   Serial.println(s);
   logs += s + "\n";
-  if (logs.length() > 2500) logs = logs.substring(logs.indexOf('\n') + 1);
+  if (logs.length() > 3000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-// Ham do khoang cach voi thuat toan "Cuong che xa khoa Echo"
-long measureWithForcedUnlock(int trig, int echo) {
-  // 1. CƯỠNG CHẾ XẢ ĐIỆN TÍCH KẸT: Keo ca 2 chan ve LOW de reset vi dieu khien cam bien
-  pinMode(echo, OUTPUT);
-  digitalWrite(echo, LOW);
+long checkPulse(int trig, int echo) {
   pinMode(trig, OUTPUT);
+  pinMode(echo, INPUT);
+  
   digitalWrite(trig, LOW);
-  delayMicroseconds(50); // Xa trong 50us
-
-  // 2. Chuyen Echo sang che do INPUT san sang nhan tin hieu
-  pinMode(echo, INPUT_PULLDOWN);
-
-  // 3. Phat xung kich Trig manh 20us (vuot nguong 3.5V cua clone HC-SR04)
+  delayMicroseconds(4);
   digitalWrite(trig, HIGH);
-  delayMicroseconds(20);
+  delayMicroseconds(12);
   digitalWrite(trig, LOW);
 
-  // 4. Do do rong xung Echo (timeout 30ms ~ 5m)
-  long dur = pulseIn(echo, HIGH, 30000);
-  if (dur <= 0) return -1;
-  return (long)(dur * 0.034 / 2);
+  // pulseIn voi timeout 35000us (~6m)
+  long dur = pulseIn(echo, HIGH, 35000);
+  if (dur > 120 && dur < 24000) { // Hop le: 2cm den 400cm
+    return (long)(dur * 0.034 / 2);
+  }
+  return -1;
 }
 
 void setup() {
@@ -63,40 +60,40 @@ void setup() {
   digitalWrite(LED_PIN, LOW); // Sang LED on dinh
 
   addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
-  addLog("🔓 Kich hoat thuat toan CUONG CHE XA KHOA ECHO tren GPIO 0 & 1!");
-
-  server.on("/", HTTP_GET, []() {
-    float temp = temperatureRead();
-    String distText = (currentDist >= 0) ? String(currentDist) + " cm" : "Chưa đo được (-1)";
-    String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-    html += "<title>EcoClean Unlock</title>";
-    html += "<style>body{font-family:sans-serif;text-align:center;padding:20px;background:#181818;color:#fff;}";
-    html += ".card{background:#242424;border-radius:14px;padding:25px;max-width:380px;margin:15px auto;}";
-    html += ".dist{font-size:48px;font-weight:bold;color:#00e676;margin:15px 0;}";
-    html += ".cfg{color:#ffd54f;font-size:15px;}";
-    html += "</style><meta http-equiv='refresh' content='1'></head><body>";
-    html += "<div class='card'><h2>CẢM BIẾN ĐÃ MỞ KHÓA</h2>";
-    html += "<div class='dist'>" + distText + "</div>";
-    html += "<p class='cfg'>" + activeConfig + "</p>";
-    html += "<p style='color:#81c784;'>Nhiệt độ chip: " + String(temp, 1) + " &deg;C</p>";
-    html += "<p><a href='/log' style='color:#ffb74d;'>Xem Nhật ký (Log)</a></p>";
-    html += "</div></body></html>";
-    server.send(200, "text/html", html);
-  });
+  addLog("🔍 KHOI DONG CHE DO QUET LIEN TUC: Tu dong tim cap chan phat hien vat!");
 
   server.on("/distance", HTTP_GET, []() {
-    server.send(200, "text/plain", String(currentDist));
-  });
-
-  server.on("/raw", HTTP_GET, []() {
-    String s = "GPIO0=" + String(digitalRead(0)) + " | GPIO1=" + String(digitalRead(1)) + " | Dist=" + String(currentDist) + " cm";
-    server.send(200, "text/plain", s);
+    server.send(200, "text/plain", String(foundDist));
   });
 
   server.on("/log", HTTP_GET, []() {
     float temp = temperatureRead();
-    String out = logs + "\n[Hien tai] Dist: " + String(currentDist) + " cm | " + activeConfig + " | Temp: " + String(temp, 1) + " C";
+    String out = logs + "\n[LIVE] Khoang cach: " + String(foundDist) + " cm | " + lockedPair + " | Temp: " + String(temp, 1) + " C";
     server.send(200, "text/plain; charset=utf-8", out);
+  });
+
+  server.on("/status", HTTP_GET, []() {
+    String s = "Dist=" + String(foundDist) + " cm | Pair=" + lockedPair;
+    server.send(200, "text/plain", s);
+  });
+
+  server.on("/", HTTP_GET, []() {
+    float temp = temperatureRead();
+    String distText = (foundDist >= 0) ? String(foundDist) + " cm" : "Đang quét tìm vật cản...";
+    String html = "<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
+    html += "<title>EcoClean Distance Finder</title>";
+    html += "<style>body{font-family:sans-serif;text-align:center;padding:20px;background:#181818;color:#fff;}";
+    html += ".card{background:#242424;border-radius:14px;padding:25px;max-width:380px;margin:15px auto;}";
+    html += ".dist{font-size:48px;font-weight:bold;color:#00e676;margin:15px 0;}";
+    html += ".cfg{color:#ffd54f;font-size:16px;}";
+    html += "</style><meta http-equiv='refresh' content='1'></head><body>";
+    html += "<div class='card'><h2>KẾT QUẢ ĐO VẬT CẢN</h2>";
+    html += "<div class='dist'>" + distText + "</div>";
+    html += "<p class='cfg'>" + lockedPair + "</p>";
+    html += "<p style='color:#81c784;'>Nhiệt độ chip: " + String(temp, 1) + " &deg;C</p>";
+    html += "<p><a href='/log' style='color:#ffb74d;'>Xem Nhật ký (Log)</a></p>";
+    html += "</div></body></html>";
+    server.send(200, "text/html", html);
   });
 
   server.on("/update", HTTP_POST, []() {
@@ -117,46 +114,62 @@ void setup() {
   server.begin();
 }
 
+// Danh sach tat ca cac cap chan co the co:
+// 1) Cap chan 0 & 1 (uu tien hang dau)
+// 2) Cap chan 20 & 21
+// 3) Cap chan 3 & 4
+// 4) Cap chan 1 & 2
+// 5) Cap chan 2 & 3
+const int pairList[][2] = {
+  {0, 1}, {1, 0},
+  {20, 21}, {21, 20},
+  {3, 4}, {4, 3},
+  {1, 2}, {2, 1},
+  {2, 3}, {3, 2},
+  {0, 2}, {2, 0}
+};
+const int NUM_PAIRS = sizeof(pairList) / sizeof(pairList[0]);
+
 void loop() {
   server.handleClient();
 
-  // Luon giu LED sang on dinh khi co WiFi
-  if (WiFi.status() == WL_CONNECTED) {
-    digitalWrite(LED_PIN, LOW);
-  } else {
+  if (WiFi.status() != WL_CONNECTED) {
     digitalWrite(LED_PIN, HIGH);
     WiFi.reconnect();
     delay(200);
     return;
+  } else {
+    digitalWrite(LED_PIN, LOW);
   }
 
-  static unsigned long lastPing = 0;
+  static unsigned long lastRun = 0;
   unsigned long now = millis();
-  // Chu ky 100ms de cam bien co du thoi gian nghi giua cac lan phat
-  if (now - lastPing >= 100) {
-    lastPing = now;
+  if (now - lastRun >= 60) {
+    lastRun = now;
 
-    // Chieu A: Trig=0, Echo=1
-    long dA = measureWithForcedUnlock(0, 1);
-    if (dA >= 2 && dA <= 350) {
-      currentDist = dA;
-      activeConfig = "✅ Đang nhận: Trig=Chân 0, Echo=Chân 1";
-    } else {
-      // Chieu B: Trig=1, Echo=0
-      long dB = measureWithForcedUnlock(1, 0);
-      if (dB >= 2 && dB <= 350) {
-        currentDist = dB;
-        activeConfig = "✅ Đang nhận: Trig=Chân 1, Echo=Chân 0";
-      } else {
-        currentDist = -1;
+    if (isLocked) {
+      // Neu da khoa cap chan thanh cong: Do lien tuc cap chan nay
+      long d = checkPulse(lockedTrig, lockedEcho);
+      if (d >= 2 && d <= 350) {
+        foundDist = d;
       }
-    }
-
-    if (currentDist >= 0) {
-      static long lastD = -1;
-      if (abs(currentDist - lastD) >= 2) {
-        lastD = currentDist;
-        addLog("📏 Khoang cach do duoc: " + String(currentDist) + " cm" + (currentDist <= 25 ? " [Co vat can gan!]" : ""));
+    } else {
+      // Quet lan luot tung cap chan cho den khi bat duoc song phan hoi!
+      for (int i = 0; i < NUM_PAIRS; i++) {
+        int t = pairList[i][0];
+        int e = pairList[i][1];
+        long d = checkPulse(t, e);
+        if (d >= 2 && d <= 350) {
+          foundDist = d;
+          lockedTrig = t;
+          lockedEcho = e;
+          isLocked = true;
+          lockedPair = "🎯 ĐÃ KHÓA THÀNH CÔNG: Trig=GPIO " + String(t) + ", Echo=GPIO " + String(e);
+          addLog("🎉 THÀNH CÔNG RỒI! Bắt được khoảng cách: " + String(d) + " cm");
+          addLog("🎯 Khóa cấu hình: Trig=GPIO " + String(t) + ", Echo=GPIO " + String(e));
+          break;
+        }
+        delay(10);
       }
     }
   }
