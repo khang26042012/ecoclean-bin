@@ -3,7 +3,6 @@
  * 1. Độ ẩm đất (Soil Moisture) -> GPIO 0
  * 2. Chất lượng & Độ mặn nước (Water Salinity) -> GPIO 1
  * 3. Nhiệt độ & Độ ẩm không khí (DHT22) -> GPIO 2
- * Web Dashboard Dark Mode tự động cập nhật thời gian thực
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -40,18 +39,17 @@ void addLog(String s) {
   if (logs.length() > 3000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-// Hàm đọc dữ liệu DHT22 chuẩn giao thức 1-wire tốc độ cao
+// Hàm đọc dữ liệu DHT22 chuẩn giao thức 1-wire
 bool readDHT22(int pin, float &t_out, float &h_out) {
   uint8_t data[5] = {0, 0, 0, 0, 0};
 
   pinMode(pin, OUTPUT);
   digitalWrite(pin, LOW);
-  delayMicroseconds(1200); // Host pull LOW 1.2ms
+  delayMicroseconds(1200);
   digitalWrite(pin, HIGH);
   delayMicroseconds(30);
   pinMode(pin, INPUT_PULLUP);
 
-  // Chờ cảm biến phản hồi (80us LOW, 80us HIGH)
   unsigned long timeout = micros();
   while (digitalRead(pin) == HIGH) { if (micros() - timeout > 90) return false; }
   timeout = micros();
@@ -59,7 +57,6 @@ bool readDHT22(int pin, float &t_out, float &h_out) {
   timeout = micros();
   while (digitalRead(pin) == HIGH) { if (micros() - timeout > 90) return false; }
 
-  // Đọc 40 bit
   for (int i = 0; i < 40; i++) {
     timeout = micros();
     while (digitalRead(pin) == LOW) { if (micros() - timeout > 90) return false; }
@@ -70,7 +67,6 @@ bool readDHT22(int pin, float &t_out, float &h_out) {
     }
   }
 
-  // Kiểm tra Checksum
   if (data[4] != ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) return false;
 
   h_out = ((data[0] << 8) | data[1]) * 0.1f;
@@ -136,7 +132,7 @@ void readAllSensors() {
 void setup() {
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);
-  setCpuFrequencyMhz(80); // Mát mẻ 38-40C
+  setCpuFrequencyMhz(80);
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
@@ -153,12 +149,11 @@ void setup() {
     delay(150);
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   }
-  digitalWrite(LED_PIN, LOW); // LED sáng ổn định
+  digitalWrite(LED_PIN, LOW);
 
   addLog("🎉 DA KET NOI WI-FI! IP: " + WiFi.localIP().toString());
   addLog("🌱 KÍCH HOẠT FULL BỘ 3 CẢM BIẾN: Đất (GPIO 0) + Nước (GPIO 1) + DHT22 (GPIO 2)!");
 
-  // Giao diện Web Dashboard 4 Card siêu đẹp
   server.on("/", HTTP_GET, []() {
     float chipTemp = temperatureRead();
     String soilColor = (soilPercent < 30) ? "#ff5252" : (soilPercent <= 75 ? "#00e676" : "#29b6f6");
@@ -182,14 +177,14 @@ void setup() {
     html += "<div class='header'><h2 style='margin:0;color:#00e676;'>🌱 AGROSENSE PRO</h2>";
     html += "<p style='margin:4px 0;color:#888;font-size:12px;'>TRẠM QUAN TRẮC ĐỘ ẨM ĐẤT, NƯỚC TƯỚI & VI KHÍ HẬU</p></div>";
 
-    // Khối 1: Độ ẩm đất
+    // Khối 1: Đất
     html += "<div class='fullcard'>";
     html += "<div class='title'>1. Độ Ẩm Đất Trồng (Soil Moisture - GPIO 0)</div>";
     html += "<div class='val' style='color:" + soilColor + ";'>" + String(soilPercent) + "%</div>";
     html += "<div class='badge' style='background:#2a2a2a;color:" + soilColor + ";'>" + soilStatus + "</div>";
     html += "</div>";
 
-    // Khối 2: Độ mặn & chất lượng nước
+    // Khối 2: Nước
     html += "<div class='fullcard'>";
     html += "<div class='title'>2. Độ Mặn & Chất Lượng Nước Tưới (Salinity - GPIO 1)</div>";
     html += "<div class='val' style='color:" + waterColor + ";'>" + (rawWater < 200 ? "KHÔ RÁO" : String(salinityEst, 1) + " &permil;") + "</div>";
@@ -197,7 +192,7 @@ void setup() {
     html += "<div class='desc'>" + waterAdvice + "</div>";
     html += "</div>";
 
-    // Khối 3 & 4: Nhiệt độ & Độ ẩm không khí (DHT22)
+    // Khối 3 & 4: DHT22
     html += "<div class='grid'>";
     html += "<div class='card'>";
     html += "<div class='title'>3. Nhiệt Độ Không Khí</div>";
@@ -218,8 +213,8 @@ void setup() {
   });
 
   server.on("/data", HTTP_GET, []() {
-    String json = "{"soil_pct":" + String(soilPercent) + ","water_salinity":" + String(salinityEst, 1) + ","dht_temp":" + String(dhtTemp, 1) + ","dht_hum":" + String(dhtHum, 1) + "}";
-    server.send(200, "application/json", json);
+    String out = "Soil=" + String(soilPercent) + "% | WaterSalinity=" + String(salinityEst, 1) + " permil | AirTemp=" + String(dhtTemp, 1) + " C | AirHum=" + String(dhtHum, 1) + "%";
+    server.send(200, "text/plain", out);
   });
 
   server.on("/log", HTTP_GET, []() {
@@ -260,7 +255,6 @@ void loop() {
 
   static unsigned long lastMeasure = 0;
   unsigned long now = millis();
-  // Đọc cảm biến mỗi 1 giây (chuẩn thời gian đáp ứng của DHT22)
   if (now - lastMeasure >= 1000) {
     lastMeasure = now;
     readAllSensors();
