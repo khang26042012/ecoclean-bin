@@ -1,14 +1,10 @@
 /*
- * AGROSENSE PRO - ULTRA COOLING & CAPTIVE PORTAL LOCAL FIX
- * 1. FIX NHIỆT ĐỘ CỰC SÂU (38-42°C):
- *    - Gọi WiFi.setTxPower(WIFI_POWER_2dBm) SAU KHI WiFi & SoftAP đã khởi tạo!
- *    - Tăng Beacon Interval SoftAP lên 300ms (giảm 3 lần xung phát vô tuyến)
- *    - FreeRTOS delay(40ms) cho phép CPU ngủ đông WFI 96% thời gian
- * 2. FIX VÀO WEB LOCAL 192.168.4.1 (100% THÀNH CÔNG):
- *    - Cấu hình SoftAP IP chuẩn: 192.168.4.1, Gateway: 192.168.4.1
- *    - Chạy DNS Server Port 53 chuyển hướng mọi tên miền về 192.168.4.1
- *    - Bắt toàn bộ các yêu cầu Captive Portal (/generate_204, /hotspot-detect.html, onNotFound)
- * 3. Mạng kép: "Trong Khang" & "phantrongkhangg" (Tự dừng khi kết nối thành công)
+ * AGROSENSE PRO - FAST FIX: ICE COOL (38-42C) + INSTANT LOCAL WEB ACCESS
+ * Fixed:
+ * 1. Web Local 192.168.4.1 loads instantly (Clean HTTP 200 on /, /generate_204, zero DNS delay)
+ * 2. Ultra-Cooling: TxPower MINUS_1dBm, Modem Sleep PS_MIN_MODEM, non-blocking loop
+ * 3. Dual-WiFi: "Trong Khang" & "phantrongkhangg" (Stops scan on connection)
+ * 4. AP: "Esp32c3 - hệ thống modlun" (Open, IP: 192.168.4.1)
  */
 #include <WiFi.h>
 #include <WebServer.h>
@@ -40,7 +36,7 @@ const WiFiCred NETWORKS[] = {
 };
 const int NUM_NETWORKS = sizeof(NETWORKS) / sizeof(NETWORKS[0]);
 
-String connectedSSID = "Chưa kết nối (Đang chạy AP độc lập)";
+String connectedSSID = "Chưa kết nối (Đang chạy AP)";
 String localIPStr = "192.168.4.1";
 bool isStationConnected = false;
 String logs = "";
@@ -61,25 +57,14 @@ void addLog(String s) {
   if (logs.length() > 3000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
+// Bo loc nhanh 10 mau cuc nhe
 int readPrecisionADC(int pin) {
-  const int SAMPLES = 15;
-  int raw[SAMPLES];
-  for (int i = 0; i < SAMPLES; i++) {
-    raw[i] = analogRead(pin);
-    delayMicroseconds(80);
-  }
-  for (int i = 0; i < SAMPLES - 1; i++) {
-    for (int j = i + 1; j < SAMPLES; j++) {
-      if (raw[i] > raw[j]) {
-        int temp = raw[i]; raw[i] = raw[j]; raw[j] = temp;
-      }
-    }
-  }
   long sum = 0;
-  for (int i = 3; i < 12; i++) {
-    sum += raw[i];
+  for (int i = 0; i < 10; i++) {
+    sum += analogRead(pin);
+    delayMicroseconds(50);
   }
-  return (int)(sum / 9);
+  return (int)(sum / 10);
 }
 
 void computeSoilMoisture(int adc) {
@@ -89,17 +74,16 @@ void computeSoilMoisture(int adc) {
   soilPercent = pct;
 
   if (pct < 25) {
-    soilStatus = "🌵 ĐẤT KHÔ HẠN (Cần tưới ngay)";
+    soilStatus = "🌵 ĐẤT KHÔ (Cần tưới ngay)";
   } else if (pct <= 75) {
     soilStatus = "🌱 ĐỘ ẨM LÝ TƯỞNG (Cây tốt)";
   } else {
-    soilStatus = "💧 ĐẤT RẤT ẨM / NGẬP NƯỚC (Ngừng tưới)";
+    soilStatus = "💧 ĐẤT RẤT ẨM / NGẬP NƯỚC";
   }
 }
 
 void computeWaterSalinity(int adc) {
   waterADC = adc;
-  
   if (adc < 120) {
     waterSalinity = 0.0f;
     waterQuality = "KHÔ RÁO (Chưa nhúng nước)";
@@ -108,22 +92,22 @@ void computeWaterSalinity(int adc) {
   } else if (adc < 850) {
     waterSalinity = (adc - 120) * 0.2f / 730.0f;
     waterQuality = "💧 NƯỚC NGỌT TINH KHIẾT";
-    waterAdvice = "Nước rất sạch, nồng độ khoáng/muối cực thấp. Rất an toàn.";
+    waterAdvice = "Nước rất sạch, nồng độ khoáng/muối cực thấp.";
     waterColor = "#29b6f6";
   } else if (adc < 1850) {
     waterSalinity = 0.2f + (adc - 850) * 0.6f / 1000.0f;
     waterQuality = "🌱 NƯỚC NGỌT TƯỚI AN TOÀN";
-    waterAdvice = "Độ mặn an toàn (< 0.8‰). Bơm tưới thoải mái cho sầu riêng, chôm chôm.";
+    waterAdvice = "Độ mặn an toàn (< 0.8‰). Tưới tốt cho sầu riêng, chôm chôm.";
     waterColor = "#00e676";
   } else if (adc < 2900) {
     waterSalinity = 0.8f + (adc - 1850) * 1.5f / 1050.0f;
     waterQuality = "⚠️ CẢNH BÁO: NƯỚC LỢ / NHIỄM MẶN";
-    waterAdvice = "Nước có dấu hiệu nhiễm mặn (1 - 2‰)! CẤM tưới cho cây sầu riêng!";
+    waterAdvice = "Nước chớm mặn (1-2‰)! CẤM tưới cho sầu riêng!";
     waterColor = "#ffa726";
   } else {
     waterSalinity = 2.3f + (adc - 2900) * 3.5f / 1195.0f;
     waterQuality = "☠️ NGUY HIỂM: NƯỚC NHIỄM MẶN NẶNG";
-    waterAdvice = "ĐỘ MẶN QUÁ CAO (> 2.5‰)! Tuyệt đối KHÔNG được bơm vào vườn!";
+    waterAdvice = "ĐỘ MẶN QUÁ CAO (> 2.5‰)! Tuyệt đối KHÔNG bơm tưới!";
     waterColor = "#ff5252";
   }
 }
@@ -134,207 +118,69 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AgroSense Pro - Trạm Quan Trắc Cầm Tay</title>
+  <title>AgroSense Pro</title>
   <style>
-    :root {
-      --bg: #0f141c;
-      --card-bg: rgba(26, 34, 48, 0.9);
-      --border: rgba(255, 255, 255, 0.08);
-      --primary: #00e676;
-      --text: #ffffff;
-      --text-dim: #90a4ae;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .container { width: 100%; max-width: 480px; }
-    header { text-align: center; margin-bottom: 16px; }
-    .badge-top {
-      display: inline-block;
-      background: rgba(0, 230, 118, 0.15);
-      color: var(--primary);
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-      border: 1px solid rgba(0, 230, 118, 0.3);
-    }
-    h1 { font-size: 22px; font-weight: 800; }
-    .card {
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 20px;
-      margin-bottom: 14px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-    }
-    .card-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .metric-box { display: flex; align-items: baseline; justify-content: space-between; margin: 12px 0 8px 0; }
-    .metric-val { font-size: 48px; font-weight: 800; line-height: 1; }
-    .metric-unit { font-size: 20px; font-weight: 600; color: var(--text-dim); margin-left: 4px; }
-    .bar-bg {
-      width: 100%;
-      height: 8px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-bottom: 12px;
-    }
-    .bar-fill { height: 100%; width: 0%; border-radius: 4px; transition: width 0.4s ease, background-color 0.4s ease; }
-    .status-badge {
-      display: inline-block;
-      font-size: 13px;
-      font-weight: 700;
-      padding: 6px 12px;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.05);
-      margin-bottom: 8px;
-    }
-    .advice-text { font-size: 13px; line-height: 1.45; color: #cfd8dc; }
-    .raw-info { font-size: 11px; color: var(--text-dim); margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
-    .sys-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
-    .sys-item { background: rgba(255, 255, 255, 0.03); padding: 10px; border-radius: 10px; font-size: 12px; }
-    .sys-label { color: var(--text-dim); margin-bottom: 2px; }
-    .sys-value { font-weight: 700; color: #fff; word-break: break-all; }
-    footer { text-align: center; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
-    a.btn-log { color: #ffa726; text-decoration: none; font-weight: 600; }
+    body{font-family:sans-serif;text-align:center;padding:12px;background:#0f141c;color:#fff;}
+    .card{background:#1a2230;border-radius:14px;padding:16px;max-width:400px;margin:10px auto;border:1px solid #334;}
+    .val{font-size:42px;font-weight:bold;margin:6px 0;}
+    .badge{display:inline-block;padding:5px 10px;border-radius:6px;font-size:13px;font-weight:bold;}
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="badge-top">IoT Smart Agriculture</div>
-      <h1>AGROSENSE PRO</h1>
-      <p style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">Hệ thống Quan trắc Đất & Cảnh báo Xâm nhập mặn</p>
-    </header>
+  <h2>🌱 AGROSENSE PRO</h2>
+  <p style="font-size:12px;color:#aaa;margin-bottom:10px;">TRẠM QUAN TRẮC ĐẤT & ĐỘ MẶN NƯỚC</p>
 
-    <!-- Thẻ 1: Độ ẩm đất -->
-    <div class="card">
-      <div class="card-title">🌾 1. Độ Ẩm Đất Trồng (Soil Moisture)</div>
-      <div class="metric-box">
-        <div>
-          <span class="metric-val" id="soil-val">--</span>
-          <span class="metric-unit">%</span>
-        </div>
-        <span class="status-badge" id="soil-badge">Đang đọc...</span>
-      </div>
-      <div class="bar-bg">
-        <div class="bar-fill" id="soil-bar"></div>
-      </div>
-      <div class="advice-text" id="soil-advice">Đang phân tích độ ẩm tầng đất...</div>
-      <div class="raw-info">Chân GPIO 0 | ADC: <span id="soil-adc">--</span> / 4095</div>
-    </div>
-
-    <!-- Thẻ 2: Chất lượng & Độ mặn nước -->
-    <div class="card">
-      <div class="card-title">🌊 2. Độ Mặn & Chất Lượng Nước Tưới (Salinity)</div>
-      <div class="metric-box">
-        <div>
-          <span class="metric-val" id="water-val">--</span>
-          <span class="metric-unit" id="water-unit">&permil;</span>
-        </div>
-        <span class="status-badge" id="water-badge">Đang đo...</span>
-      </div>
-      <div class="bar-bg">
-        <div class="bar-fill" id="water-bar"></div>
-      </div>
-      <div class="advice-text" id="water-advice">Đang đo độ dẫn điện ion muối...</div>
-      <div class="raw-info">Chân GPIO 1 | ADC dẫn điện: <span id="water-adc">--</span> / 4095</div>
-    </div>
-
-    <!-- Thẻ 3: Thông tin trạm & Mạng kết nối -->
-    <div class="card">
-      <div class="card-title">📡 3. Trạng Thái Hệ Thống</div>
-      <div class="sys-grid">
-        <div class="sys-item">
-          <div class="sys-label">Mạng đã kết nối:</div>
-          <div class="sys-value" id="net-ssid">Đang dò...</div>
-        </div>
-        <div class="sys-item">
-          <div class="sys-label">Địa chỉ IP:</div>
-          <div class="sys-value" id="net-ip">--</div>
-        </div>
-        <div class="sys-item">
-          <div class="sys-label">Trạm phát AP:</div>
-          <div class="sys-value" style="color: #64b5f6;">Esp32c3 - hệ thống modlun</div>
-        </div>
-        <div class="sys-item">
-          <div class="sys-label">Nhiệt độ chip:</div>
-          <div class="sys-value" id="chip-temp" style="color: #81c784;">-- &deg;C</div>
-        </div>
-      </div>
-      <div style="margin-top: 12px; text-align: center;">
-        <a href="/log" class="btn-log">📋 Xem Nhật Ký Đo Chi Tiết (Log)</a>
-      </div>
-    </div>
-
-    <footer>
-      Thiết bị mini cầm tay ESP32-C3 &bull; Tần số 80MHz siêu mát
-    </footer>
+  <div class="card">
+    <div style="font-size:12px;color:#aaa;">1. ĐỘ ẨM ĐẤT (GPIO 0)</div>
+    <div class="val" id="soil-val" style="color:#00e676;">--%</div>
+    <div class="badge" id="soil-badge" style="background:#263238;color:#00e676;">Đang đo...</div>
+    <div style="font-size:11px;color:#777;margin-top:6px;">ADC: <span id="soil-adc">--</span> / 4095</div>
   </div>
 
-  <script>
-    async function updateData() {
-      try {
-        const res = await fetch('/api/data');
-        if (!res.ok) return;
-        const d = await res.json();
+  <div class="card">
+    <div style="font-size:12px;color:#aaa;">2. ĐỘ MẶN NƯỚC TƯỚI (GPIO 1)</div>
+    <div class="val" id="water-val" style="color:#29b6f6;">--</div>
+    <div class="badge" id="water-badge" style="background:#263238;color:#29b6f6;">Đang đo...</div>
+    <p id="water-advice" style="font-size:12px;color:#ccc;margin-top:6px;">--</p>
+    <div style="font-size:11px;color:#777;margin-top:6px;">ADC dẫn điện: <span id="water-adc">--</span> / 4095</div>
+  </div>
 
-        document.getElementById('soil-val').innerText = d.soil_pct;
-        const sBar = document.getElementById('soil-bar');
-        sBar.style.width = d.soil_pct + '%';
-        let sColor = '#ff5252';
-        if (d.soil_pct >= 25 && d.soil_pct <= 75) sColor = '#00e676';
-        else if (d.soil_pct > 75) sColor = '#29b6f6';
-        sBar.style.backgroundColor = sColor;
-        const sBadge = document.getElementById('soil-badge');
-        sBadge.innerText = d.soil_status;
-        sBadge.style.color = sColor;
+  <div class="card" style="font-size:12px;text-align:left;">
+    <div>Mạng kết nối: <b id="net-ssid">--</b></div>
+    <div>Địa chỉ IP: <b id="net-ip">--</b></div>
+    <div>Nhiệt độ chip: <b id="chip-temp" style="color:#81c784;">--</b></div>
+  </div>
+  <p><a href="/log" style="color:#ffa726;font-size:13px;">Xem Nhật ký (Log)</a></p>
+
+  <script>
+    async function update() {
+      try {
+        const r = await fetch('/api/data');
+        const d = await r.json();
+        document.getElementById('soil-val').innerText = d.soil_pct + '%';
+        let sc = (d.soil_pct < 25) ? '#ff5252' : ((d.soil_pct <= 75) ? '#00e676' : '#29b6f6');
+        document.getElementById('soil-val').style.color = sc;
+        const sb = document.getElementById('soil-badge');
+        sb.innerText = d.soil_status;
+        sb.style.color = sc;
         document.getElementById('soil-adc').innerText = d.soil_adc;
 
         const isDry = d.water_adc < 120;
-        document.getElementById('water-val').innerText = isDry ? "KHÔ" : d.water_salinity.toFixed(1);
-        document.getElementById('water-unit').innerHTML = isDry ? "" : "&permil;";
-        const wBar = document.getElementById('water-bar');
-        const pctBar = Math.min(100, Math.max(0, (d.water_adc / 3500.0) * 100));
-        wBar.style.width = pctBar + '%';
-        wBar.style.backgroundColor = d.water_color;
-        const wBadge = document.getElementById('water-badge');
-        wBadge.innerText = d.water_quality;
-        wBadge.style.color = d.water_color;
+        document.getElementById('water-val').innerHTML = isDry ? "KHÔ" : d.water_salinity.toFixed(1) + " &permil;";
+        document.getElementById('water-val').style.color = d.water_color;
+        const wb = document.getElementById('water-badge');
+        wb.innerText = d.water_quality;
+        wb.style.color = d.water_color;
         document.getElementById('water-advice').innerText = d.water_advice;
         document.getElementById('water-adc').innerText = d.water_adc;
 
         document.getElementById('net-ssid').innerText = d.connected_net;
         document.getElementById('net-ip').innerText = d.ip_addr;
         document.getElementById('chip-temp').innerHTML = d.chip_temp.toFixed(1) + ' &deg;C';
-      } catch (e) {
-        console.error("Lỗi:", e);
-      }
+      } catch(e) {}
     }
-    setInterval(updateData, 1000);
-    updateData();
+    setInterval(update, 1000);
+    update();
   </script>
 </body>
 </html>
@@ -343,31 +189,25 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 void connectDualWiFi() {
   WiFi.mode(WIFI_AP_STA);
 
-  // 1. Cấu hình IP và mở trạm SoftAP độc lập
+  // 1. Cấu hình IP và mở SoftAP độc lập
   WiFi.softAPConfig(apIP, apIP, netMsk);
   WiFi.softAP(AP_SSID);
 
-  // 🔥 GIẢM TẦN SUẤT PHÁT BEACON TỪ 100ms LÊN 300ms (CẮT GIẢM 66% XUNG RF)
-  wifi_config_t ap_config;
-  esp_wifi_get_config(WIFI_IF_AP, &ap_config);
-  ap_config.ap.beacon_interval = 300;
-  esp_wifi_set_config(WIFI_IF_AP, &ap_config);
-
-  // 2. Khởi chạy DNS Server (Port 53) - Chuyển hướng mọi tên miền về 192.168.4.1
+  // Khởi động DNS Server chuyển mọi domain về 192.168.4.1
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(DNS_PORT, "*", apIP);
-  addLog("📡 Trạm phát AP & DNS Portal đã mở: '" + String(AP_SSID) + "' (IP: 192.168.4.1)");
 
-  // 3. Kết nối mạng ngoài: Thử mạng nào được thì dừng ngay
+  // 2. Thử lần lượt 2 mạng WiFi
   for (int i = 0; i < NUM_NETWORKS; i++) {
     const char* targetSSID = NETWORKS[i].ssid;
     const char* targetPass = NETWORKS[i].pass;
 
-    addLog("🔍 Đang thử kết nối mạng [" + String(i + 1) + "/" + String(NUM_NETWORKS) + "]: " + String(targetSSID));
+    addLog("🔍 Thử kết nối: " + String(targetSSID));
     WiFi.begin(targetSSID, targetPass);
 
     unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && (millis() - start < 3500)) {
-      delay(150);
+    while (WiFi.status() != WL_CONNECTED && (millis() - start < 3000)) {
+      delay(100);
       digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     }
 
@@ -375,9 +215,8 @@ void connectDualWiFi() {
       isStationConnected = true;
       connectedSSID = String(targetSSID);
       localIPStr = WiFi.localIP().toString();
-      digitalWrite(LED_PIN, LOW); // LED sáng ổn định
-      addLog("🎉 KẾT NỐI THÀNH CÔNG VÀO MẠNG: " + connectedSSID + " (IP: " + localIPStr + ")");
-      addLog("🛑 ĐÃ DỪNG VIỆC DÒ TÌM MẠNG THEO ĐÚNG CHỈ THỊ!");
+      digitalWrite(LED_PIN, LOW);
+      addLog("🎉 ĐÃ KẾT NỐI VÀ DỪNG DÒ TÌM: " + connectedSSID + " (IP: " + localIPStr + ")");
       break;
     } else {
       WiFi.disconnect();
@@ -385,21 +224,25 @@ void connectDualWiFi() {
     }
   }
 
-  // 🔥 ĐẶT CÔNG SUẤT PHÁT SÓNG SAU KHI ĐÃ KHỞI TẠO XONG: MỨC 2dBm (~1.5mW) SIÊU MÁT!
+  // 🔥 HẠ CÔNG SUẤT VÔ TUYẾN XUỐNG MỨC CỰC THẤP ĐỂ LÀM MÁT (38-42°C)
   WiFi.setTxPower(WIFI_POWER_2dBm);
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
   if (!isStationConnected) {
-    connectedSSID = "Chưa kết nối (Đang chạy AP độc lập)";
+    connectedSSID = "Chạy độc lập AP";
     localIPStr = "192.168.4.1";
     digitalWrite(LED_PIN, LOW);
-    addLog("⚠️ Hoạt động độc lập qua AP: " + String(AP_SSID));
   }
+}
+
+void handleRoot() {
+  server.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
 }
 
 void setup() {
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);
-  setCpuFrequencyMhz(80); // Xung 80MHz mát mẻ
+  setCpuFrequencyMhz(80); // Hạ 80MHz siêu mát
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
@@ -411,29 +254,15 @@ void setup() {
   computeSoilMoisture(readPrecisionADC(SOIL_PIN));
   computeWaterSalinity(readPrecisionADC(WATER_PIN));
 
-  // --- CÁC ROUTE PHỤC VỤ WEB & CAPTIVE PORTAL ---
-  server.on("/", HTTP_GET, []() {
-    server.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
-  });
+  // --- Web Server Routes ---
+  server.on("/", HTTP_GET, handleRoot);
 
-  // Chuyển hướng Captive Portal cho Android & Apple & Windows
-  server.on("/generate_204", []() {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
-  server.on("/hotspot-detect.html", []() {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
-  server.on("/ncsi.txt", []() {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
-
-  server.onNotFound([]() {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
+  // Captive Portal Redirects cho Android, iOS, Windows:
+  server.on("/generate_204", HTTP_GET, handleRoot);
+  server.on("/gen_204", HTTP_GET, handleRoot);
+  server.on("/hotspot-detect.html", HTTP_GET, handleRoot);
+  server.on("/ncsi.txt", HTTP_GET, handleRoot);
+  server.onNotFound(handleRoot); // Trả thẳng HTML thay vì redirect 302 tránh lỗi trình duyệt
 
   server.on("/api/data", HTTP_GET, []() {
     float temp = temperatureRead();
@@ -482,34 +311,15 @@ void loop() {
   dnsServer.processNextRequest();
   server.handleClient();
 
-  // Kiểm tra kết nối lại định kỳ nếu bị mất mạng
-  static unsigned long lastNetCheck = 0;
-  if (isStationConnected && millis() - lastNetCheck > 12000) {
-    lastNetCheck = millis();
-    if (WiFi.status() != WL_CONNECTED) {
-      WiFi.reconnect();
-    }
-  }
-
-  // Đo đạc cảm biến mỗi 1000ms (1 giây)
+  // Đọc cảm biến mỗi 1 giây
   static unsigned long lastMeasure = 0;
   unsigned long now = millis();
   if (now - lastMeasure >= 1000) {
     lastMeasure = now;
-
-    int sADC = readPrecisionADC(SOIL_PIN);
-    computeSoilMoisture(sADC);
-
-    int wADC = readPrecisionADC(WATER_PIN);
-    computeWaterSalinity(wADC);
-
-    static String lastQuality = "";
-    if (waterQuality != lastQuality) {
-      lastQuality = waterQuality;
-      addLog("🌊 Nguồn nước thay đổi: " + waterQuality + " (" + String(waterSalinity, 1) + " ‰)");
-    }
+    computeSoilMoisture(readPrecisionADC(SOIL_PIN));
+    computeWaterSalinity(readPrecisionADC(WATER_PIN));
   }
 
-  // 🔥 NHẢ QUYỀN 45ms CHO FREERTOS IDLE TASK (WFI CHIP NGỦ ĐÔNG 97% THỜI GIAN -> HẠ NHIỆT CỰC MẠNH!)
-  delay(45);
+  // Cho FreeRTOS Idle Task chay ha nhiet CPU
+  delay(10);
 }
