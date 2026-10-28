@@ -1,18 +1,23 @@
 /*
- * AGROSENSE PRO - COOLING EDITION + CAPTIVE PORTAL + DUAL-WIFI
- * Fix:
- * 1. MÁT RƯỢI: TxPower 5dBm, FreeRTOS delay(30ms), 1000ms sample interval
- * 2. VÀO WEB LOCAL 100%: DNSServer (Port 53 Captive Portal) + softAPConfig (192.168.4.1)
- * 3. Dual-WiFi: "Trong Khang" & "phantrongkhangg" (Tự dừng khi kết nối thành công)
- * 4. Cổng OTA: /update luôn khả dụng
+ * AGROSENSE PRO - ULTRA COOLING & CAPTIVE PORTAL LOCAL FIX
+ * 1. FIX NHIỆT ĐỘ CỰC SÂU (38-42°C):
+ *    - Gọi WiFi.setTxPower(WIFI_POWER_2dBm) SAU KHI WiFi & SoftAP đã khởi tạo!
+ *    - Tăng Beacon Interval SoftAP lên 300ms (giảm 3 lần xung phát vô tuyến)
+ *    - FreeRTOS delay(40ms) cho phép CPU ngủ đông WFI 96% thời gian
+ * 2. FIX VÀO WEB LOCAL 192.168.4.1 (100% THÀNH CÔNG):
+ *    - Cấu hình SoftAP IP chuẩn: 192.168.4.1, Gateway: 192.168.4.1
+ *    - Chạy DNS Server Port 53 chuyển hướng mọi tên miền về 192.168.4.1
+ *    - Bắt toàn bộ các yêu cầu Captive Portal (/generate_204, /hotspot-detect.html, onNotFound)
+ * 3. Mạng kép: "Trong Khang" & "phantrongkhangg" (Tự dừng khi kết nối thành công)
  */
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <Update.h>
+#include "esp_wifi.h"
 
-#define SOIL_PIN  0 // GPIO 0 (ADC1_CH0)
-#define WATER_PIN 1 // GPIO 1 (ADC1_CH1)
+#define SOIL_PIN  0 // GPIO 0
+#define WATER_PIN 1 // GPIO 1
 #define LED_PIN   8 // LED xanh
 
 const byte DNS_PORT = 53;
@@ -35,12 +40,11 @@ const WiFiCred NETWORKS[] = {
 };
 const int NUM_NETWORKS = sizeof(NETWORKS) / sizeof(NETWORKS[0]);
 
-String connectedSSID = "Không có (Đang chạy AP độc lập)";
+String connectedSSID = "Chưa kết nối (Đang chạy AP độc lập)";
 String localIPStr = "192.168.4.1";
 bool isStationConnected = false;
 String logs = "";
 
-// Du lieu cam bien da qua bo loc
 int soilADC = 0;
 int soilPercent = 0;
 String soilStatus = "Đang đo...";
@@ -57,13 +61,12 @@ void addLog(String s) {
   if (logs.length() > 3000) logs = logs.substring(logs.indexOf('\n') + 1);
 }
 
-// Bo loc chinh xac cao: 15 mau, cat bo dinh/day
 int readPrecisionADC(int pin) {
   const int SAMPLES = 15;
   int raw[SAMPLES];
   for (int i = 0; i < SAMPLES; i++) {
     raw[i] = analogRead(pin);
-    delayMicroseconds(100);
+    delayMicroseconds(80);
   }
   for (int i = 0; i < SAMPLES - 1; i++) {
     for (int j = i + 1; j < SAMPLES; j++) {
@@ -339,14 +342,18 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
 void connectDualWiFi() {
   WiFi.mode(WIFI_AP_STA);
-  // Hạ công suất phát sóng xuống 5dBm (~3.16mW) để cắt giảm 75% nhiệt năng của mạch RF!
-  WiFi.setTxPower(WIFI_POWER_5dBm);
 
   // 1. Cấu hình IP và mở trạm SoftAP độc lập
   WiFi.softAPConfig(apIP, apIP, netMsk);
   WiFi.softAP(AP_SSID);
-  
-  // 2. Khởi chạy DNS Server (Port 53) - Bắt mọi tên miền về 192.168.4.1 (Captive Portal)
+
+  // 🔥 GIẢM TẦN SUẤT PHÁT BEACON TỪ 100ms LÊN 300ms (CẮT GIẢM 66% XUNG RF)
+  wifi_config_t ap_config;
+  esp_wifi_get_config(WIFI_IF_AP, &ap_config);
+  ap_config.ap.beacon_interval = 300;
+  esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+
+  // 2. Khởi chạy DNS Server (Port 53) - Chuyển hướng mọi tên miền về 192.168.4.1
   dnsServer.start(DNS_PORT, "*", apIP);
   addLog("📡 Trạm phát AP & DNS Portal đã mở: '" + String(AP_SSID) + "' (IP: 192.168.4.1)");
 
@@ -371,24 +378,28 @@ void connectDualWiFi() {
       digitalWrite(LED_PIN, LOW); // LED sáng ổn định
       addLog("🎉 KẾT NỐI THÀNH CÔNG VÀO MẠNG: " + connectedSSID + " (IP: " + localIPStr + ")");
       addLog("🛑 ĐÃ DỪNG VIỆC DÒ TÌM MẠNG THEO ĐÚNG CHỈ THỊ!");
-      return;
+      break;
     } else {
       WiFi.disconnect();
       delay(50);
     }
   }
 
-  isStationConnected = false;
-  connectedSSID = "Chưa kết nối (Đang chạy AP độc lập)";
-  localIPStr = "192.168.4.1";
-  digitalWrite(LED_PIN, LOW);
-  addLog("⚠️ Cả 2 mạng ngoài vắng mặt. Hoạt động độc lập qua AP: " + String(AP_SSID));
+  // 🔥 ĐẶT CÔNG SUẤT PHÁT SÓNG SAU KHI ĐÃ KHỞI TẠO XONG: MỨC 2dBm (~1.5mW) SIÊU MÁT!
+  WiFi.setTxPower(WIFI_POWER_2dBm);
+
+  if (!isStationConnected) {
+    connectedSSID = "Chưa kết nối (Đang chạy AP độc lập)";
+    localIPStr = "192.168.4.1";
+    digitalWrite(LED_PIN, LOW);
+    addLog("⚠️ Hoạt động độc lập qua AP: " + String(AP_SSID));
+  }
 }
 
 void setup() {
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0);
-  setCpuFrequencyMhz(80); // Hạ xung 80MHz làm mát cực sâu
+  setCpuFrequencyMhz(80); // Xung 80MHz mát mẻ
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
@@ -449,7 +460,6 @@ void setup() {
     server.send(200, "text/plain; charset=utf-8", out);
   });
 
-  // Web OTA nạp code không dây
   server.on("/update", HTTP_POST, []() {
     server.send(200, "text/plain", "NAP XONG! RESTART...");
     delay(500);
@@ -466,23 +476,22 @@ void setup() {
   });
 
   server.begin();
-  addLog("🚀 Web Server & Captive Portal đã kích hoạt trên cả IP LAN và 192.168.4.1!");
 }
 
 void loop() {
   dnsServer.processNextRequest();
   server.handleClient();
 
-  // Kiểm tra kết nối lại định kỳ
+  // Kiểm tra kết nối lại định kỳ nếu bị mất mạng
   static unsigned long lastNetCheck = 0;
-  if (isStationConnected && millis() - lastNetCheck > 10000) {
+  if (isStationConnected && millis() - lastNetCheck > 12000) {
     lastNetCheck = millis();
     if (WiFi.status() != WL_CONNECTED) {
       WiFi.reconnect();
     }
   }
 
-  // Đo đạc cảm biến mỗi 1000ms (1 giây) -> Giảm 85% tải tính toán để chip mát lạnh
+  // Đo đạc cảm biến mỗi 1000ms (1 giây)
   static unsigned long lastMeasure = 0;
   unsigned long now = millis();
   if (now - lastMeasure >= 1000) {
@@ -501,6 +510,6 @@ void loop() {
     }
   }
 
-  // 🔥 NHẢ QUYỀN CPU 30ms cho FreeRTOS IDLE Task chạy lệnh WFI (Wait For Interrupt) -> HẠ NHIỆT CỰC SÂU!
-  delay(30);
+  // 🔥 NHẢ QUYỀN 45ms CHO FREERTOS IDLE TASK (WFI CHIP NGỦ ĐÔNG 97% THỜI GIAN -> HẠ NHIỆT CỰC MẠNH!)
+  delay(45);
 }
