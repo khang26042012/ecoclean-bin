@@ -419,18 +419,19 @@ void setup() {
   server.on("/api/data", HTTP_GET, []() {
     float temp = temperatureRead();
     String json = "{";
-    json += ""soil_pct":" + String(soilPercent) + ",";
-    json += ""soil_adc":" + String(soilADC) + ",";
-    json += ""soil_status":"" + soilStatus + "",";
-    json += ""water_salinity":" + String(waterSalinity, 2) + ",";
-    json += ""water_adc":" + String(waterADC) + ",";
-    json += ""water_quality":"" + waterQuality + "",";
-    json += ""water_advice":"" + waterAdvice + "",";
-    json += ""water_color":"" + waterColor + "",";
-    json += ""chip_temp":" + String(temp, 1) + ",";
-    json += ""connected_net":"" + connectedSSID + "",";
-    json += ""ip_addr":"" + localIPStr + """;
+    json += "'soil_pct':" + String(soilPercent) + ",";
+    json += "'soil_adc':" + String(soilADC) + ",";
+    json += "'soil_status':'" + soilStatus + "',";
+    json += "'water_salinity':" + String(waterSalinity, 2) + ",";
+    json += "'water_adc':" + String(waterADC) + ",";
+    json += "'water_quality':'" + waterQuality + "',";
+    json += "'water_advice':'" + waterAdvice + "',";
+    json += "'water_color':'" + waterColor + "',";
+    json += "'chip_temp':" + String(temp, 1) + ",";
+    json += "'connected_net':'" + connectedSSID + "',";
+    json += "'ip_addr':'" + localIPStr + "'";
     json += "}";
+    json.replace('\'', '"');
     server.send(200, "application/json", json);
   });
 
