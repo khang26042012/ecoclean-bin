@@ -25,10 +25,11 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@2.0.17
 
-      - name: Compile Sketch for ESP32 DevKit V1
+      - name: Compile Sketch for ESP32 DevKit V1 (Explicit DIO 40MHz)
         run: |
           mkdir -p build
-          arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir ./build ./ota_minimal
+          # DOIT DevKit V1 is the exact board and explicitly sets DIO and 40MHz
+          arduino-cli compile --fqbn esp32:esp32:esp32doit-devkit-v1:FlashFreq=40 --output-dir ./build ./ota_minimal
           ls -la ./build
           cp build/ota_minimal.ino.bin firmware_app.bin
           ls -lh firmware_app.bin
@@ -46,4 +47,4 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add firmware_app.bin firmware_merged.bin
-          git diff --staged --quiet || (git commit -m "Auto-build ESP32 DevKit V1 OTA firmware" && git push)
+          git diff --staged --quiet || (git commit -m "Fix: compile with esp32doit-devkit-v1 (DIO 40MHz)" && git push)
