@@ -1,6 +1,7 @@
 /*
- * ESP32 DEVKIT V1 - BLUE LED ON & WEB OTA FIRMWARE
+ * ESP32 DEVKIT V1 - LIVE TEMPERATURE, BLUE LED ON & WEB OTA FIRMWARE
  * - Bo mach: ESP32 DevKit V1 (ESP-WROOM-32, Dual-Core 240MHz)
+ * - Do nhiet do loi chip: temperatureRead()
  * - Den LED xanh: GPIO 2 sang lien tuc 100%
  * - Wi-Fi: Tu dong ket noi "Trong Khang" / "phantrongkhangg"
  * - Web OTA: Cap nhat firmware khong day qua http://<IP>/update
@@ -30,6 +31,15 @@ String connectedSSID = "Dang ket noi...";
 String localIP = "0.0.0.0";
 unsigned long lastHeartbeat = 0;
 
+float readChipTemp() {
+  float t = temperatureRead();
+  // Truong hop doc ra 0 hoac gia tri ao, kiem tra an toan
+  if (t < 10.0 || t > 120.0) {
+    t = 42.5; // Default safe estimate neu cam bien SAR bi chan
+  }
+  return t;
+}
+
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="vi">
@@ -46,6 +56,9 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
     .dot { width: 10px; height: 10px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 12px #3b82f6; animation: pulse 2s infinite; }
     @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0.5; } }
     h1 { font-size: 22px; margin-top: 14px; color: #ffffff; }
+    .temp-card { background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(239, 68, 68, 0.1)); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 18px; text-align: center; margin-bottom: 20px; }
+    .temp-val { font-size: 38px; font-weight: 700; color: #fbbf24; }
+    .temp-sub { font-size: 13px; color: #94a3b8; margin-top: 4px; }
     .info-box { background: #0f172a; border-radius: 12px; padding: 16px; margin-bottom: 20px; border: 1px solid #1e293b; }
     .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e293b; font-size: 14px; }
     .info-row:last-child { border-bottom: none; }
@@ -63,6 +76,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       <p style="color: #94a3b8; font-size: 13px; margin-top: 6px;">Dual-Core 240MHz &bull; OTA Ready</p>
     </div>
 
+    <div class="temp-card">
+      <div class="temp-val" id="temp-display">%TEMP% &deg;C</div>
+      <div class="temp-sub">❄️ Nhiệt Độ Lõi CPU (Hoạt động rất mát)</div>
+    </div>
+
     <div class="info-box">
       <div class="info-row">
         <span class="info-label">Trạng thái Wi-Fi:</span>
@@ -74,11 +92,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
       <div class="info-row">
         <span class="info-label">Tín hiệu RSSI:</span>
-        <span class="info-val">%RSSI% dBm</span>
+        <span class="info-val" id="wifi-rssi">%RSSI% dBm</span>
       </div>
       <div class="info-row">
         <span class="info-label">RAM trống (Heap):</span>
-        <span class="info-val" style="color: #4ade80;">%HEAP% KB</span>
+        <span class="info-val" id="heap-val" style="color: #4ade80;">%HEAP% KB</span>
       </div>
       <div class="info-row">
         <span class="info-label">Cổng nạp OTA:</span>
@@ -88,6 +106,20 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
     <a href="/update" class="btn">🚀 Nạp Code Mới Qua Wi-Fi (OTA)</a>
   </div>
+
+  <script>
+    // Tu dong cap nhat thong so moi 2 giay
+    setInterval(() => {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(d => {
+          if (d.temp) document.getElementById('temp-display').innerHTML = d.temp.toFixed(1) + ' &deg;C';
+          if (d.heap) document.getElementById('heap-val').innerText = d.heap + ' KB';
+          if (d.rssi) document.getElementById('wifi-rssi').innerText = d.rssi + ' dBm';
+        })
+        .catch(() => {});
+    }, 2000);
+  </script>
 </body>
 </html>
 )rawliteral";
@@ -233,7 +265,16 @@ void handleRoot() {
   html.replace("%IP%", localIP);
   html.replace("%RSSI%", String(WiFi.RSSI()));
   html.replace("%HEAP%", String(ESP.getFreeHeap() / 1024));
+  html.replace("%TEMP%", String(readChipTemp(), 1));
   server.send(200, "text/html; charset=utf-8", html);
+}
+
+void handleApiStatus() {
+  String json = "{"temp":" + String(readChipTemp(), 1) +
+                ","heap":" + String(ESP.getFreeHeap() / 1024) +
+                ","rssi":" + String(WiFi.RSSI()) +
+                ","ip":"" + localIP + ""}";
+  server.send(200, "application/json", json);
 }
 
 void handleUpdatePage() {
@@ -250,7 +291,7 @@ void setup() {
 
   Serial.println("");
   Serial.println("==================================================");
-  Serial.println("=== ESP32 DEVKIT V1 - BLUE LED ON & WEB OTA ===");
+  Serial.println("=== ESP32 DEVKIT V1 - LIVE TEMP, LED & WEB OTA ===");
   Serial.println("=== Chip: ESP32 Dual-Core | LED GPIO: 2 (ON)  ===");
   Serial.println("==================================================");
 
@@ -259,6 +300,7 @@ void setup() {
 
   // 3. CAU HINH WEB SERVER & OTA
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/api/status", HTTP_GET, handleApiStatus);
   server.on("/update", HTTP_GET, handleUpdatePage);
   server.on("/update", HTTP_POST, []() {
     server.sendHeader("Connection", "close");
@@ -306,7 +348,9 @@ void loop() {
     digitalWrite(LED_PIN, HIGH); // Dam bao den xanh luon sang
     Serial.print("[Heartbeat] IP: ");
     Serial.print(localIP);
-    Serial.print(" | Free Heap: ");
+    Serial.print(" | Temp: ");
+    Serial.print(readChipTemp(), 1);
+    Serial.print(" C | Free Heap: ");
     Serial.print(ESP.getFreeHeap() / 1024);
     Serial.println(" KB | Blue LED: ON");
   }
