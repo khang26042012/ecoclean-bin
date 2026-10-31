@@ -1,4 +1,4 @@
-name: Compile Cool Firmware for Web OTA
+name: Compile ESP32 DevKit V1 OTA Firmware
 
 on:
   push:
@@ -25,17 +25,25 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@2.0.17
 
-      - name: Compile Cooling Sketch for ESP32-C3
+      - name: Compile Sketch for ESP32 DevKit V1
         run: |
           mkdir -p build
-          arduino-cli compile --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,FlashMode=dio,FlashFreq=40 --output-dir ./build ./ota_minimal
+          arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir ./build ./ota_minimal
           ls -la ./build
           cp build/ota_minimal.ino.bin firmware_app.bin
           ls -lh firmware_app.bin
 
-      - name: Commit and Push firmware_app.bin
+      - name: Create Merged Binary (0x0 Flashable)
+        run: |
+          python3 -m pip install esptool
+          BOOT_APP0=$(find ~/.arduino15/packages/esp32/ -name "boot_app0.bin" | head -n 1)
+          echo "Found boot_app0 at: $BOOT_APP0"
+          python3 -m esptool --chip esp32 merge_bin -o firmware_merged.bin --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 build/ota_minimal.ino.bootloader.bin 0x8000 build/ota_minimal.ino.partitions.bin 0xe000 "$BOOT_APP0" 0x10000 build/ota_minimal.ino.bin
+          ls -lh firmware_merged.bin
+
+      - name: Commit and Push binaries
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add firmware_app.bin
-          git diff --staged --quiet || (git commit -m "Auto-build firmware_app.bin for OTA" && git push)
+          git add firmware_app.bin firmware_merged.bin
+          git diff --staged --quiet || (git commit -m "Auto-build ESP32 DevKit V1 OTA firmware" && git push)
