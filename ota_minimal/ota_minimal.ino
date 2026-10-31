@@ -268,10 +268,13 @@ void handleRoot() {
 }
 
 void handleApiStatus() {
-  char buf[200];
-  snprintf(buf, sizeof(buf), "{"temp":%.1f,"heap":%lu,"rssi":%d,"ip":"%s"}",
-           readChipTemp(), (unsigned long)(ESP.getFreeHeap() / 1024), WiFi.RSSI(), localIP.c_str());
-  server.send(200, "application/json", buf);
+  String json = "{";
+  json += ""temp":" + String(readChipTemp(), 1) + ",";
+  json += ""heap":" + String(ESP.getFreeHeap() / 1024) + ",";
+  json += ""rssi":" + String(WiFi.RSSI()) + ",";
+  json += ""ip":"" + localIP + """;
+  json += "}";
+  server.send(200, "application/json", json);
 }
 
 void handleUpdatePage() {
