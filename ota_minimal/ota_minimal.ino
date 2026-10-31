@@ -499,19 +499,13 @@ void handleRoot() {
 }
 
 void handleApiStatus() {
-  String json = "{"temp":";
-  json += String(readChipTemp(), 1);
-  json += ","sessions":";
-  json += String(activeSessions);
-  json += ","heap":";
-  json += String(ESP.getFreeHeap() / 1024);
-  json += ","rssi":";
-  json += String(WiFi.RSSI());
-  json += ","mb":";
-  json += String((float)totalBytesRelayed / (1024.0 * 1024.0), 2);
-  json += ","ip":"";
-  json += localIP;
-  json += ""}";
+  String json = "{'temp':" + String(readChipTemp(), 1) +
+                ",'sessions':" + String(activeSessions) +
+                ",'heap':" + String(ESP.getFreeHeap() / 1024) +
+                ",'rssi':" + String(WiFi.RSSI()) +
+                ",'mb':" + String((float)totalBytesRelayed / (1024.0 * 1024.0), 2) +
+                ",'ip':'" + localIP + "'}";
+  json.replace(''', '"');
   server.send(200, "application/json", json);
 }
 
