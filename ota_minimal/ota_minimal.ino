@@ -505,7 +505,7 @@ void handleApiStatus() {
                 ",'rssi':" + String(WiFi.RSSI()) +
                 ",'mb':" + String((float)totalBytesRelayed / (1024.0 * 1024.0), 2) +
                 ",'ip':'" + localIP + "'}";
-  json.replace(''', '"');
+  json.replace(char(39), char(34));
   server.send(200, "application/json", json);
 }
 
