@@ -33,9 +33,8 @@ unsigned long lastHeartbeat = 0;
 
 float readChipTemp() {
   float t = temperatureRead();
-  // Truong hop doc ra 0 hoac gia tri ao, kiem tra an toan
   if (t < 10.0 || t > 120.0) {
-    t = 42.5; // Default safe estimate neu cam bien SAR bi chan
+    t = 42.5;
   }
   return t;
 }
@@ -108,7 +107,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   </div>
 
   <script>
-    // Tu dong cap nhat thong so moi 2 giay
     setInterval(() => {
       fetch('/api/status')
         .then(r => r.json())
@@ -270,11 +268,10 @@ void handleRoot() {
 }
 
 void handleApiStatus() {
-  String json = "{"temp":" + String(readChipTemp(), 1) +
-                ","heap":" + String(ESP.getFreeHeap() / 1024) +
-                ","rssi":" + String(WiFi.RSSI()) +
-                ","ip":"" + localIP + ""}";
-  server.send(200, "application/json", json);
+  char buf[200];
+  snprintf(buf, sizeof(buf), "{"temp":%.1f,"heap":%lu,"rssi":%d,"ip":"%s"}",
+           readChipTemp(), (unsigned long)(ESP.getFreeHeap() / 1024), WiFi.RSSI(), localIP.c_str());
+  server.send(200, "application/json", buf);
 }
 
 void handleUpdatePage() {
@@ -285,9 +282,8 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  // 1. BAT DEN XANH GPIO 2 SANG LIEN TUC
   pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH); // Sang den xanh 100%
+  digitalWrite(LED_PIN, HIGH);
 
   Serial.println("");
   Serial.println("==================================================");
@@ -295,10 +291,8 @@ void setup() {
   Serial.println("=== Chip: ESP32 Dual-Core | LED GPIO: 2 (ON)  ===");
   Serial.println("==================================================");
 
-  // 2. KET NOI WI-FI NHA
   connectToWiFi();
 
-  // 3. CAU HINH WEB SERVER & OTA
   server.on("/", HTTP_GET, handleRoot);
   server.on("/api/status", HTTP_GET, handleApiStatus);
   server.on("/update", HTTP_GET, handleUpdatePage);
@@ -337,15 +331,13 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  // Tu dong ket noi lai neu rot mang
   if (WiFi.status() != WL_CONNECTED && millis() - lastHeartbeat > 10000) {
     connectToWiFi();
   }
 
-  // Heartbeat moi 5 giay gui qua Serial cho app Terminal
   if (millis() - lastHeartbeat >= 5000) {
     lastHeartbeat = millis();
-    digitalWrite(LED_PIN, HIGH); // Dam bao den xanh luon sang
+    digitalWrite(LED_PIN, HIGH);
     Serial.print("[Heartbeat] IP: ");
     Serial.print(localIP);
     Serial.print(" | Temp: ");
