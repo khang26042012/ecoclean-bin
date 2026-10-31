@@ -1,7 +1,7 @@
 /*
  * ESP32 DEVKIT V1 - BLUE LED ON & WEB OTA FIRMWARE
- * - Bo mạch: ESP32 DevKit V1 (ESP-WROOM-32, Dual-Core 240MHz)
- * - Đèn LED xanh (Blue LED): GPIO 2 sang lien tuc 100%
+ * - Bo mach: ESP32 DevKit V1 (ESP-WROOM-32, Dual-Core 240MHz)
+ * - Den LED xanh: GPIO 2 sang lien tuc 100%
  * - Wi-Fi: Tu dong ket noi "Trong Khang" / "phantrongkhangg"
  * - Web OTA: Cap nhat firmware khong day qua http://<IP>/update
  */
@@ -191,12 +191,13 @@ const char UPDATE_HTML[] PROGMEM = R"rawliteral(
 
 void connectToWiFi() {
   WiFi.mode(WIFI_STA);
-  Serial.println("
-[WiFi] Bat dau ket noi Wi-Fi nha...");
+  Serial.println("");
+  Serial.println("[WiFi] Bat dau ket noi Wi-Fi nha...");
 
   for (int i = 0; i < NUM_NETWORKS; i++) {
-    Serial.printf("[WiFi] Thu mang: %s ...
-", NETWORKS[i].ssid);
+    Serial.print("[WiFi] Thu mang: ");
+    Serial.print(NETWORKS[i].ssid);
+    Serial.println(" ...");
     WiFi.begin(NETWORKS[i].ssid, NETWORKS[i].pass);
 
     unsigned long start = millis();
@@ -204,18 +205,20 @@ void connectToWiFi() {
       delay(250);
       Serial.print(".");
     }
-    Serial.println();
+    Serial.println("");
 
     if (WiFi.status() == WL_CONNECTED) {
       connectedSSID = NETWORKS[i].ssid;
       localIP = WiFi.localIP().toString();
       Serial.println("==================================================");
-      Serial.printf("[WiFi] >>> KET NOI THANH CONG: %s <<<
-", connectedSSID.c_str());
-      Serial.printf("[WiFi] >>> DIA CHI IP: http://%s/ <<<
-", localIP.c_str());
-      Serial.printf("[OTA]  >>> TRANG NAP CODE: http://%s/update <<<
-", localIP.c_str());
+      Serial.print("[WiFi] >>> KET NOI THANH CONG: ");
+      Serial.println(connectedSSID);
+      Serial.print("[WiFi] >>> DIA CHI IP: http://");
+      Serial.print(localIP);
+      Serial.println("/ <<<");
+      Serial.print("[OTA]  >>> TRANG NAP CODE: http://");
+      Serial.print(localIP);
+      Serial.println("/update <<<");
       Serial.println("==================================================");
       return;
     }
@@ -245,9 +248,8 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH); // Sang den xanh 100%
 
-  Serial.println("
-
-==================================================");
+  Serial.println("");
+  Serial.println("==================================================");
   Serial.println("=== ESP32 DEVKIT V1 - BLUE LED ON & WEB OTA ===");
   Serial.println("=== Chip: ESP32 Dual-Core | LED GPIO: 2 (ON)  ===");
   Serial.println("==================================================");
@@ -266,8 +268,8 @@ void setup() {
   }, []() {
     HTTPUpload& upload = server.upload();
     if (upload.status == UPLOAD_FILE_START) {
-      Serial.printf("[OTA] Bat dau nhan file: %s
-", upload.filename.c_str());
+      Serial.print("[OTA] Bat dau nhan file: ");
+      Serial.println(upload.filename);
       if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
         Update.printError(Serial);
       }
@@ -277,8 +279,9 @@ void setup() {
       }
     } else if (upload.status == UPLOAD_FILE_END) {
       if (Update.end(true)) {
-        Serial.printf("[OTA] Nap hoan tat! Dung luong: %u bytes. Dang khoi dong lai...
-", upload.totalSize);
+        Serial.print("[OTA] Nap hoan tat! Dung luong: ");
+        Serial.print(upload.totalSize);
+        Serial.println(" bytes. Dang khoi dong lai...");
       } else {
         Update.printError(Serial);
       }
@@ -301,8 +304,10 @@ void loop() {
   if (millis() - lastHeartbeat >= 5000) {
     lastHeartbeat = millis();
     digitalWrite(LED_PIN, HIGH); // Dam bao den xanh luon sang
-    Serial.printf("[Heartbeat] IP: %s | Free Heap: %u KB | Blue LED: ON
-",
-                  localIP.c_str(), ESP.getFreeHeap() / 1024);
+    Serial.print("[Heartbeat] IP: ");
+    Serial.print(localIP);
+    Serial.print(" | Free Heap: ");
+    Serial.print(ESP.getFreeHeap() / 1024);
+    Serial.println(" KB | Blue LED: ON");
   }
 }
